@@ -1,0 +1,48 @@
+﻿
+<nav class="navbar navbar-expand-lg fixed-top" style="flex-shrink:0;">
+    <div class="container">
+        <div class="navbar-brand" >
+            <span class="brand-icon">✨</span>
+            <span>SQLAZOR</span>
+        </div>
+        <button class="navbar-toggler border-0" type="button"
+        data-bs-toggle="collapse" data-bs-target="#mainNav">
+            <i class="bi bi-list" style="font-size: 2rem; color: var(--cu-neon-cyan)"></i>
+        </button>
+
+
+        <div class="navbar-collapse collapse" id="mainNav">
+            <ul class="navbar-nav mb-lg-0 me-auto mb-2">
+                <li class="nav-item"><a class="nav-link" href="#features"><i class="bi bi-house-door"></i>Features</a></li>
+                <li class="nav-item"><a class="nav-link" href="#workflow"><i class="bi bi-people"></i>Workflow</a></li>
+                <li class="nav-item"><a class="nav-link" href="#showcase"><i class="bi bi-folder"></i>AI Assist</a></li>
+                <li class="nav-item"><a class="nav-link" href="#testimonials"><i class="bi bi-shield-check"></i>Testimonials</a></li>
+          
+            </ul>
+            <div class="d-flex align-items-center gap-2">
+               
+                <button class="theme-btn" @onclick="ToggleTheme" title="Toggle theme">
+                    <span class="sun-icon"><i class="bi bi-sun"></i></span>
+                    <span class="moon-icon"><i class="bi bi-moon"></i></span>
+                </button>
+               
+            </div>
+        </div>
+    </div>
+</nav>
+
+@code{
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _JSRuntime.InitializeTheme();
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        await _JSRuntime.ToggleTheme();
+    }
+}

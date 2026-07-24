@@ -1,0 +1,67 @@
+﻿ <!-- ─── SHOWCASE ─── -->
+    <section class="showcase-section" id="showcase">
+        <div class="container">
+            <div class="section-header">
+                <div class="badge-cyber"><i class="bi bi-display me-1"></i> Showcase</div>
+                <h2>See It in Action</h2>
+                <p>Generated code from a real SQL Server database — clean, typed, and ready to run.</p>
+            </div>
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="showcase-card">
+                        <div class="showcase-header">
+                            <div class="dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <span class="title">Models/Product.cs</span>
+                            <span class="text-muted small">Generated</span>
+                        </div>
+                        <div class="showcase-body">
+                            <div class="code-snippet">
+                                <span class="kw">using</span> System.ComponentModel.DataAnnotations;<br />
+                                <br />
+                                <span class="kw">namespace</span> SqLazor.Models<br />
+                                {<br />
+                                &nbsp;&nbsp;<span class="kw">public class</span> <span style="color:#4fc3f7;">Product</span><br />
+                                &nbsp;&nbsp;{<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public int</span> ProductId { <span class="kw">get; set;</span> }<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public string</span> Name { <span class="kw">get; set;</span> }<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public decimal</span> Price { <span class="kw">get; set;</span> }<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public int</span> CategoryId { <span class="kw">get; set;</span> }<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public virtual</span> Category Category { <span class="kw">get; set;</span> }<br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// + validation, navigation, etc.</span><br />
+                                &nbsp;&nbsp;}<br />
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="showcase-card">
+                        <div class="showcase-header">
+                            <div class="dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <span class="title">Pages/Products.razor</span>
+                            <span class="text-muted small">Generated</span>
+                        </div>
+                        <div class="showcase-body">
+                            <div class="code-snippet">
+                                <span class="kw">@@page</span> <span class="str">"/products"</span><br />
+                                <span class="kw">@@using</span> SqLazor.Models<br />
+                                <span class="kw">@@inject</span> IProductService ProductService<br />
+                                <br />
+                                &lt;<span style="color:#4fc3f7;">MudTable</span> <span style="color:#ffbd2e;">Items</span>=<span class="str">"_products"</span><br />
+                                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#ffbd2e;">ServerData</span>=<span class="str">"@@LoadData"</span>&gt;<br />
+                                &nbsp;&nbsp;&lt;<span style="color:#4fc3f7;">PropertyColumn</span> <span style="color:#ffbd2e;">Property</span>=<span class="str">"p => p.Name"</span> <span style="color:#ffbd2e;">Title</span>=<span class="str">"Product"</span> /&gt;<br />
+                                &nbsp;&nbsp;&lt;<span style="color:#4fc3f7;">PropertyColumn</span> <span style="color:#ffbd2e;">Property</span>=<span class="str">"p => p.Price"</span> <span style="color:#ffbd2e;">Title</span>=<span class="str">"Price"</span> /&gt;<br />
+                                &lt;<span style="color:#4fc3f7;">/MudTable</span>&gt;<br />
+                                <br />
+                                <span class="cm">// + CRUD dialogs, search, pagination</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>

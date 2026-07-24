@@ -1,0 +1,70 @@
+﻿<!-- ─── HERO ─── -->
+<section class="hero" id="hero">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6">
+                <div class="hero-badge">
+                    <i class="bi bi-rocket-takeoff me-1"></i> v1.0 · with Blazor Server
+                </div>
+                <h1>SQL → Blazor<br />in Seconds</h1>
+                <p class="lead">
+                    Reverse‑engineer your SQL Server database into a complete,
+                    production‑ready Blazor Admin app. No more manual CRUD scaffolding.
+                </p>
+                <div class="d-flex btn-group mt-4 flex-wrap gap-3">
+                    <a href="#cta" class="btn btn-cyber">
+                        <i class="bi bi-download me-2"></i>Start Free Trial
+                    </a>
+                    <a href="#workflow" class="btn btn-outline-cyber">
+                        <i class="bi bi-play-circle me-2"></i>See How It Works
+                    </a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <span class="number">400+</span>
+                        <span class="label">Tables Generated</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="number">12ms</span>
+                        <span class="label">Avg. Generation</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="number">98%</span>
+                        <span class="label">Code Coverage</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="code-preview">
+                    <div style="display:flex; gap:12px; margin-bottom:12px; font-size:0.7rem; color:var(--muted);">
+                        <span>📁 Program.cs</span>
+                        <span>⚡ Generated</span>
+                        <span style="margin-left:auto;">⏱️ 87ms</span>
+                    </div>
+                    <pre style="margin:0; font-family:inherit; white-space:pre-wrap; line-height:1.8;">
+<span class="comment">// Auto‑generated from AdventureWorks</span>
+<span class="keyword">using</span> SqLazor.Models;
+<span class="keyword">using</span> Microsoft.EntityFrameworkCore;
+
+<span class="keyword">public class</span> <span class="type">ProductService</span> : <span class="type">IProductService</span>
+{
+    <span class="keyword">private readonly</span> <span class="type">AppDbContext</span> _ctx;
+
+    <span class="keyword">public async Task</span>&lt;<span class="type">List</span>&lt;<span class="type">Product</span>&gt;&gt; <span class="function">GetProductsAsync</span>()
+    {
+        <span class="keyword">return await</span> _ctx.Products
+            .<span class="function">Include</span>(p => p.Category)
+            .<span class="function">ToListAsync</span>();
+    }
+
+    <span class="comment">// + 4 CRUD methods auto‑generated</span>
+    <span class="comment">// + Blazor components ready</span>
+    <span class="comment">// + MudBlazor UI integrated</span>
+}
+                        </pre>
+                    <div class="glow-line"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

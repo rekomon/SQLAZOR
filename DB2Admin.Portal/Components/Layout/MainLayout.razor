@@ -1,0 +1,77 @@
+﻿
+@inherits LayoutComponentBase
+
+
+
+
+<MudThemeProvider Theme="@_cyberpunkTheme" @bind-IsDarkMode="@_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+<div class="d-flex flex-column vh-100" style="position:relative; z-index:2;">
+    <NavbarMenu />
+
+    <div class="main-scroll-wrapper" id="mainScrollWrapper">
+        <div class="main-scroll-content" id="mainScrollContent">
+
+           
+
+            @Body
+
+            <div id="blazor-error-ui" data-nosnippet>
+                An unhandled error has occurred.
+                <a href="." class="reload">Reload</a>
+                <span class="dismiss">🗙</span>
+            </div>
+
+
+            <div style="height:24px;"></div>
+                <FOOTER />
+        </div>
+    </div>
+</div>
+</MudLayout>
+@code {
+
+    private bool _isDarkMode = true;
+
+    private MudTheme _cyberpunkTheme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#00f0ff",        // Neon Cyan
+            Secondary = "#ff00ff",      // Neon Magenta
+            Tertiary = "#ffff00",       // Neon Yellow
+            Background = "#e8f0ff",     // Light mode background
+            Surface = "#ffffff",        // Light mode surface (cards, etc.)
+            TextPrimary = "#0a1a2a",    // Light mode primary text
+            TextSecondary = "rgba(10, 30, 50, 0.8)",
+            AppbarBackground = "rgba(255, 255, 255, 0.85)",
+            DrawerBackground = "rgba(255, 255, 255, 0.85)",
+            // ... you can customize many more properties
+        },
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#00f0ff",
+            Secondary = "#ff00ff",
+            Tertiary = "#ffff00",
+            Background = "#0a0a0f",     // Dark mode background
+            Surface = "rgba(0, 20, 30, 0.7)", // Dark mode surface
+            TextPrimary = "#e0f0ff",    // Dark mode primary text
+            TextSecondary = "rgba(200, 230, 255, 0.8)",
+            AppbarBackground = "rgba(0, 20, 30, 0.7)",
+            DrawerBackground = "rgba(0, 20, 30, 0.7)",
+            // ...
+        },
+        Typography = new Typography()
+        {
+            Default = new DefaultTypography()
+            {
+                FontFamily = new[] { "Orbitron", "monospace" }, // Your cyberpunk font
+                // Optionally adjust sizes, weights, etc.
+            }
+        }
+    };
+}
