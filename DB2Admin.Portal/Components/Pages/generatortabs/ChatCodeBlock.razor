@@ -1,0 +1,67 @@
+﻿<pre class="chat-code">
+
+    <code>@Code</code>
+</pre>
+
+@if (IsSql)
+{
+    <div class="query-run-bar">
+        <button class="btn small" @onclick="OnRun" disabled="@IsRunning">
+            @(IsRunning ? "Running…" : "▶ Run query")
+        </button>
+    </div>
+
+    @if (Result is not null)
+    {
+        @if (!Result.Success)
+        {
+            <div class="status error">@Result.Error</div>
+        }
+        else if (Result.Columns.Count == 0)
+        {
+            <p class="text-muted small">Query ran successfully but returned no columns/rows.</p>
+        }
+        else
+        {
+            <div class="query-result-wrap">
+                <table class="table-hover table">
+                    <thead>
+                        <tr>
+                            @foreach (var col in Result.Columns)
+                            {
+                                <th>@col</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Result.Rows)
+                        {
+                            <tr>
+                                @foreach (var cell in row)
+                                {
+                                    <td class="text-primary">@(cell ?? "NULL")</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (Result.Truncated)
+                {
+                    <p class="text-muted small">Showing first @Result.Rows.Count row(s) — truncated for safety.</p>
+                }
+                else
+                {
+                    <p class="text-muted small">@Result.Rows.Count row(s).</p>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string Code { get; set; } = string.Empty;
+    [Parameter] public bool IsSql { get; set; }
+    [Parameter] public bool IsRunning { get; set; }
+    [Parameter] public SqlQueryRunResult? Result { get; set; }
+    [Parameter] public EventCallback OnRun { get; set; }
+}

@@ -1,0 +1,274 @@
+﻿@using static SQLAZOR.Services.GenerationState
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+@if (Schema is not null)
+{
+    
+
+    <div class="row">
+        <div class="col-sm-6 col-xl-4 slide-up">
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-primary mb-0">Tables</h5>
+                </div>
+                <div class="d-flex flex-column gap-3">
+                    <p class="text-muted">
+                        @Schema.Tables.Count table@(Schema.Tables.Count == 1 ? "" : "s") found in
+                        <strong>@Schema.DatabaseName</strong>.
+                    </p>
+
+                    <div class="actions">
+                        <button class="btn small" @onclick="SelectAll">Select all</button>
+                        <button class="btn small" @onclick="SelectNone">Select none</button>
+                    </div>
+                    <div class="slim-scroll" style="height:250px; overflow-y:auto; padding-right:6px;">
+                        
+                        @foreach (var group in Schema.Tables.GroupBy(t => t.Schema).OrderBy(g => g.Key))
+                        {
+                            
+                            <div class="schema-group">
+                                <h3 class="text-primary">@group.Key</h3>
+                                <ul>
+                                @foreach (var table in group.OrderBy(t => t.TableName))
+                                {
+                                        @if (!table.IsView)
+                                        {
+                                            var key = table.FullyQualifiedName;
+                                            <li>
+                                                <label class="table-item">
+                                                    <input type="checkbox" class="form-check-input"
+                                                    checked="@SelectedTableKeys.Contains(key)"
+                                                    @onchange="e => ToggleTable(key, (bool)e.Value!)" />
+                                                    <span class="text-primary">@table.TableName</span>
+                                                    <span class="text-muted small">(@table.Columns.Count cols)</span>
+                                                </label>
+                                            </li>
+                                        }
+                                    }
+                                </ul>
+                            </div>
+                        }
+                       
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-sm-6 col-xl-4 slide-up">
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-primary mb-0">Views</h5>
+                </div>
+                <div class="d-flex flex-column gap-3">
+
+
+                    @if (Schema.Tables.Where(t => t.IsView).Count() == 0)
+                    {
+                        <p class="text-muted">No views found.</p>
+                    }
+                    else
+                    {
+
+
+                        <p class="text-muted">
+                            @Schema.Tables.Where(t => t.IsView).ToList().Count view@(Schema.Tables.Count == 1 ? "" : "s") found in
+                            <strong>@Schema.DatabaseName</strong>.
+                        </p>
+
+
+                        <div class="actions">
+                            <button class="btn small" @onclick="SelectAllViews">Select all</button>
+                            <button class="btn small" @onclick="SelectNoneView">Select none</button>
+                        </div>
+                        <div style="height:250px; overflow-y:auto; padding-right:6px;" class="slim-scroll">
+
+                            @foreach (var group in Schema.Tables.GroupBy(t => t.Schema).OrderBy(g => g.Key))
+                            {
+
+                                <div class="schema-group">
+                                    <h3 class="text-primary">@group.Key</h3>
+                                    <ul>
+                                        @foreach (var table in group.OrderBy(t => t.TableName))
+                                        {
+                                            if (table.IsView)
+                                            {
+                                                var key = table.FullyQualifiedName;
+                                                <li>
+                                                    <label class="table-item">
+                                                        <input type="checkbox" class="form-check-input"
+                                                        checked="@SelectedViewKeys.Contains(key)"
+                                                        @onchange="e => ToggleView(key, (bool)e.Value!)" />
+                                                        <span class="text-primary">@table.TableName</span>
+                                                        <span class="text-muted small">(@table.Columns.Count cols)</span>
+                                                    </label>
+                                                </li>
+                                            }
+                                        }
+                                    </ul>
+                                </div>
+                            }
+
+                        </div>                
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-sm-6 col-xl-4 slide-up">
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-primary mb-0">Procedures</h5><span class="text-muted small">(optional)</span>
+                </div>
+                <div class="d-flex flex-column gap-3">
+                    
+                        @if (_State.Procedures.Count == 0)
+                        {
+                            <p class="text-muted">No stored procedures found (or none outside the system schemas).</p>
+                        }
+                    else
+                        {
+                        <p class="text-muted">
+                            @_State.Procedures.Count procedure@(_State.Procedures.Count == 1 ? "" : "s") found.
+                            Each selected procedure gets a result POCO (when SQL Server can describe its result set)
+                            plus a hand-mapped executor class — no EF involved, since procedures don't map cleanly to entities.
+                        </p>
+
+                        <div class="actions">
+                            <button class="btn small" @onclick="SelectAllProcedures">Select all</button>
+                            <button class="btn small" @onclick="SelectNoProcedures">Select none</button>
+                        </div>
+
+                        <div style="height:250px; overflow-y:auto; padding-right:6px;" class="slim-scroll">
+
+                            @foreach (var group in _State.Procedures.GroupBy(p => p.Schema).OrderBy(g => g.Key))
+                            {
+
+                                <div class="schema-group">
+                                    <h3 class="text-primary">@group.Key</h3>
+                                    <ul>
+                                        @foreach (var proc in group.OrderBy(p => p.Name))
+                                        {
+                                           
+                                            var key = proc.FullyQualifiedName;
+                                                <li>
+                                                    <label class="table-item">
+                                                        <input type="checkbox" class="form-check-input"
+                                                           checked="@SelectedProcedureKeys.Contains(key)"
+                                                           @onchange="e => ToggleProcedure(key, (bool)e.Value!)" />
+                                                    <span class="text-primary">@proc.Name</span>
+                                                    <span class="text-muted small">(@proc.ParameterCount param@(proc.ParameterCount == 1 ? "" : "s"))</span>
+                                                    </label>
+                                                </li>
+                                            
+                                        }
+                                    </ul>
+                                </div>
+                            }
+
+                        </div>
+                        }
+                    
+
+                    
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public DatabaseSchema? Schema { get; set; } 
+    [Parameter]
+    public List<StoredProcedureSummary>? Procedures { get; set; }
+    [Parameter]
+    public HashSet<string> SelectedTableKeys { get; set; }
+    [Parameter]
+    public HashSet<string> SelectedViewKeys { get; set; }
+    [Parameter]
+    public HashSet<string> SelectedProcedureKeys { get; set; }
+
+    private void ToggleTable(string key, bool isChecked)
+    {
+        if (isChecked) SelectedTableKeys.Add(key);
+        else SelectedTableKeys.Remove(key);
+        _State.SelectedTableKeys = SelectedTableKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+    private void SelectAll()
+    {
+        if (Schema is null) return;
+        SelectedTableKeys = Schema.Tables.Where(t=>t.IsView==false).Select(t => t.FullyQualifiedName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        _State.SelectedTableKeys = SelectedTableKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void SelectNone()
+    {
+        SelectedTableKeys.Clear();
+        _State.SelectedTableKeys = SelectedTableKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    } 
+
+
+    private void ToggleView(string key, bool isChecked)
+    {
+        if (isChecked) SelectedViewKeys.Add(key);
+        else SelectedViewKeys.Remove(key);
+        _State.SelectedViewKeys = SelectedViewKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+    private void SelectAllViews()
+    {
+        if (Schema is null) return;
+        SelectedViewKeys = Schema.Tables.Where(t => t.IsView == true).Select(t => t.FullyQualifiedName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _State.SelectedViewKeys = SelectedViewKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void SelectNoneView()
+    {
+        SelectedViewKeys.Clear();
+        _State.SelectedViewKeys = SelectedViewKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+
+    private void ToggleProcedure(string key, bool isChecked)
+    {
+        if (isChecked) SelectedProcedureKeys.Add(key);
+        else SelectedProcedureKeys.Remove(key);
+
+        _State.SelectedProcedureKeys = SelectedProcedureKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void SelectAllProcedures()
+    {
+        if (Procedures is null) return;
+        SelectedProcedureKeys = Procedures.Select(p => p.FullyQualifiedName)
+             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _State.SelectedProcedureKeys = SelectedProcedureKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+    private void SelectNoProcedures()
+    {
+        SelectedProcedureKeys.Clear();
+        _State.SelectedProcedureKeys = SelectedProcedureKeys;
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    
+    } 
+}

@@ -1,0 +1,347 @@
+﻿@using static SQLAZOR.Services.GenerationState
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+@inject IOllamaService Ollama
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title text-primary mb-0">AI schema assistant</h5><span class="text-muted small">(Ollama, optional)</span>
+            </div>
+            <p class="text-muted">
+                Ask questions about the loaded schema — relationships, what a table is for, or ask it
+                to write a T-SQL or LINQ query. Runs against your own Ollama instance; nothing is sent
+                anywhere else.
+            </p>
+
+            <div class="row">
+                <div class="col-4">
+                    <label class="form-label" for="ollamaEndpoint">Ollama endpoint</label>
+                    <MudInput T="string" id="ollamaEndpoint" @bind-Value="_State.OllamaEndpoint" class="w-100"
+                              Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Ollama endpoint"></MudInput>
+                </div>
+                <div class="col-4">
+                    <label class="form-label" for="ollamaModel">Model</label>
+                    <MudSelect T="string"
+                               @bind-Value="_State.OllamaModel" class="w-100" 
+                               Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Database">
+                        @foreach (var model in ollamaModels)
+                        {
+                            <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
+                <div class="align-self-end col-4">
+                    <MudButton class="btn btn-outline-secondary" 
+                    @onclick="TestOllamaConnectionAsync" disabled="@_chatBusy">Test connection</MudButton>
+                </div>
+            </div>
+
+
+             <div class="row">
+                <div class="col-12"> 
+                    @if (!string.IsNullOrEmpty(_ollamaStatusMessage))
+                    {
+                        <div class="status-badge @(_ollamaStatusIsError ? "status-failed" : "status-completed")">@_ollamaStatusMessage</div>
+                    }
+
+                    <div class="chat-window">
+                        @if (_State.ChatHistory.Count == 0)
+                        {
+                            <p class="text-muted small">No messages yet — ask something like "which tables reference Customers?" or "اكتبلي كويري لأكتر ١٠ عملاء مبيعًا".</p>
+                        }
+                        @foreach (var (msg, mi) in _State.ChatHistory.Select((m, idx) => (m, idx)))
+                        {
+                            <div class="chat-bubble @(msg.Role == "user" ? "chat-user" : "chat-assistant") @(msg.IsError ? "chat-error" : "")">
+                                <div class="chat-role">
+                                    @if (msg.Role == "user")
+                                    {
+                                        <span>You</span>
+                                    } 
+                                    else
+                                    {
+                                        <i class="bi bi-robot"></i>
+                                        <span> Assistant</span>
+                                    }
+                                   
+                                    </div>
+                                <div class="chat-content">
+                                    @foreach (var seg in ExtractChatBlocks(msg.Content))
+                                    {
+                                        @if (!seg.IsCode)
+                                        {
+                                            <span>@((MarkupString)EncodeChatText(seg.Text))</span>
+                                        }
+                                        else
+                                        {
+                                            var blockKey = $"{mi}:{seg.Index}";
+                                            <ChatCodeBlock Code="@seg.Text"
+                                                           IsSql="@LooksLikeSql(seg.Language, seg.Text)"
+                                                           IsRunning="@_runningQueryKeys.Contains(blockKey)"
+                                                           Result="@GetQueryResult(blockKey)"
+                                                           OnRun="@(() => RunQueryAsync(mi, seg.Index, seg.Text))" />
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                        @if (_chatBusy)
+                        {
+                            <div class="chat-bubble chat-assistant"><div class="chat-role">Assistant</div><div class="chat-content text-muted">thinking…</div></div>
+                        }
+                    </div>
+
+
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <div class="chat-input-area">
+                        <input type="text" class="form-control" id="chatInput"
+                               @bind="_chatInput" @bind:event="oninput"
+                               @onkeydown="OnChatKeyDown" disabled="@_chatBusy" placeholder="Ask me anything...">
+                        <button class="btn-send" id="chatSend" @onclick="SendChatAsync" disabled="@(_chatBusy || string.IsNullOrWhiteSpace(_chatInput))"
+                        ><i class="bi bi-send"></i></button>
+                        @if (_State.ChatHistory.Count > 0)
+                        {
+                            <button class="btn small" @onclick="ClearChat" disabled="@_chatBusy">Clear Chat</button>
+                        }
+                    </div>
+                   
+                </div>
+            </div>
+
+
+        </div>
+
+    </div>
+</div>
+
+
+@code{
+    private bool _chatBusy;
+    private string _chatInput = string.Empty;
+    private string? _ollamaStatusMessage;
+    private bool _ollamaStatusIsError;
+    private string FullResponse = "";
+    private bool IsStreaming = false;
+
+    private CancellationTokenSource? _cts;
+    private readonly HashSet<string> _runningQueryKeys = new(StringComparer.Ordinal);
+    private static readonly List<(string Id, string Name)> ollamaModels = new()
+    {
+        ("gpt-oss:120b-cloud", "Chat GPT"),
+        ("nemotron-3-super:cloud", "Nvidia Nemotron 3 Super"),
+        ("minimax-m3:cloud", "MiniMax"),
+        ("gemma4:31b-cloud", "Google Gemma 4"),
+
+    };
+
+    // protected override void OnInitialized()
+    // {
+    //     if(_State is not null)
+    //     {
+    //         Console.WriteLine($"AISchemaAssistant initialized. OllamaEndpoint: {_State.OllamaEndpoint}, OllamaModel: {_State.OllamaModel}");
+    //         Console.WriteLine($"State ConnectionString: {_State.Conn.ConnectionString}");
+    //     }
+    // }
+    // protected override async Task OnAfterRenderAsync(bool firstRender)
+    // {
+    //     if (_State is not null)
+    //     {
+    //         Console.WriteLine($"AISchemaAssistant initialized. OllamaEndpoint: {_State.OllamaEndpoint}, OllamaModel: {_State.OllamaModel}");
+    //         Console.WriteLine($"State ConnectionString: {_State.Conn.ConnectionString}");
+    //     }
+    // }
+
+    private async Task TestOllamaConnectionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_State.OllamaEndpoint) || string.IsNullOrWhiteSpace(_State.OllamaModel))
+        {
+            _ollamaStatusMessage = "Enter both an endpoint and a model name.";
+            _ollamaStatusIsError = true;
+            return;
+        }
+
+        _chatBusy = true;
+        _ollamaStatusMessage = null;
+        StateHasChanged();
+
+        var (success, error) = await Ollama.TestConnectionAsync(_State.OllamaEndpoint.Trim(), _State.OllamaModel.Trim());
+        _chatBusy = false;
+        _ollamaStatusMessage = success ? $"Connected to {_State.OllamaModel}." : error;
+        _ollamaStatusIsError = !success;
+    }
+
+    private async Task OnChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_chatBusy && !string.IsNullOrWhiteSpace(_chatInput))
+        {
+            await SendChatAsync();
+        }
+    }
+
+    private async Task SendChatAsync()
+    {
+        if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
+
+        var question = _chatInput.Trim();
+        _chatInput = string.Empty;
+        _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
+
+        _chatBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
+            var reply = await Ollama.ChatAsync(
+                _State.OllamaEndpoint.Trim(),
+                _State.OllamaModel.Trim(),
+                schemaContext,
+                _State.ChatHistory);
+
+            _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = reply });
+        }
+        catch (Exception ex)
+        {
+            _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = ex.Message, IsError = true });
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private async Task StartStreaming()
+    {
+        if (IsStreaming)
+        {
+            // Cancel ongoing stream
+            _cts?.Cancel();
+            IsStreaming = false;
+            StateHasChanged();
+            return;
+        }
+
+        FullResponse = "";
+        IsStreaming = true;
+        StateHasChanged();
+        try
+        {
+            _cts = new CancellationTokenSource();
+            var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
+            await foreach (var chunk in Ollama.StreamChatAsync(
+                            _State.OllamaEndpoint.Trim(),
+                _State.OllamaModel.Trim(),
+                schemaContext,
+                _State.ChatHistory,
+                            _cts.Token))
+            {
+                if (_cts.IsCancellationRequested)
+                    break;
+
+                FullResponse += chunk;
+                _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = FullResponse });
+                await InvokeAsync(StateHasChanged); // Trigger UI update
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Handle cancellation gracefully
+        }
+        catch (Exception ex)
+        {
+            // In production: Use ILogger and show user-friendly error
+            Console.WriteLine($"Streaming error: {ex.Message}");
+            FullResponse = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsStreaming = false;
+            _cts?.Dispose();
+            _cts = null;
+            await InvokeAsync(StateHasChanged);
+        }
+
+    }
+
+    private void ClearChat() => _State.ChatHistory.Clear();
+
+    private sealed record ChatContentSegment(bool IsCode, string Language, string Text, int Index);
+
+    /// <summary>
+    /// Splits a chat message on ```fenced``` code blocks. Text segments are returned as-is
+    /// (HTML-encoded later by the caller); code segments have their optional leading language
+    /// tag stripped and are indexed so a "Run query" click can be traced back to the exact block.
+    /// </summary>
+    private static List<ChatContentSegment> ExtractChatBlocks(string content)
+    {
+        var parts = content.Split("```");
+        var result = new List<ChatContentSegment>();
+        var codeIndex = 0;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var isCode = i % 2 == 1;
+            var text = parts[i];
+
+            if (!isCode)
+            {
+                if (text.Length > 0)
+                    result.Add(new ChatContentSegment(false, "", text, -1));
+                continue;
+            }
+
+            var language = "";
+            var newlineIndex = text.IndexOf('\n');
+            if (newlineIndex > 0 && newlineIndex < 20 && !text[..newlineIndex].Contains(' '))
+            {
+                language = text[..newlineIndex].Trim();
+                text = text[(newlineIndex + 1)..];
+            }
+            Console.WriteLine($"lang: {language}");
+            result.Add(new ChatContentSegment(true, language, text.Trim('\n'), codeIndex));
+            codeIndex++;
+        }
+
+        return result;
+    }
+
+    private static string EncodeChatText(string text) =>
+        System.Net.WebUtility.HtmlEncode(text).Replace("\n", "<br/>");
+
+    private static bool LooksLikeSql(string language, string code)
+    {
+        if (language.Equals("sql", StringComparison.OrdinalIgnoreCase) ||
+            language.Equals("tsql", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (language.Length > 0)
+            return false; // an explicit non-SQL language tag (csharp, json, ...) - don't guess against it
+
+        var trimmed = code.TrimStart();
+        return trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private SqlQueryRunResult? GetQueryResult(string blockKey) =>
+        _State.ChatQueryResults.TryGetValue(blockKey, out var result) ? result : null;
+
+    private async Task RunQueryAsync(int messageIndex, int blockIndex, string sql)
+    {
+        var key = $"{messageIndex}:{blockIndex}";
+        if (_runningQueryKeys.Contains(key)) return;
+
+        _runningQueryKeys.Add(key);
+        StateHasChanged();
+
+        var result = await SchemaReader.ExecuteReadOnlyQueryAsync(_State.Conn.ConnectionString, sql);
+        _State.ChatQueryResults[key] = result;
+
+        _runningQueryKeys.Remove(key);
+    }
+
+}

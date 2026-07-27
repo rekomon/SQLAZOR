@@ -15,3 +15,15 @@
 <TESTIMONIALS/>
 
 <CTA/>
+
+
+@code {
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _JSRuntime.InitializeTheme();
+        }
+    }
+}

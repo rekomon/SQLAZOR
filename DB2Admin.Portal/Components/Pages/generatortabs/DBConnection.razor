@@ -1,0 +1,137 @@
+﻿
+@using static SQLAZOR.Services.GenerationState
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+<span style="color:var(--cu-neon-cyan); font-weight:600;">SQL Server Database connection</span>
+<div class="row">
+    <div class="col-4">
+        <div class="form-com"></div>
+        <label class="form-label" for="txtserver">Server</label>
+        <MudInput T="string" @bind-Value="Conn!.Server" id="txtserver" class="w-100"
+                
+                
+                  Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Server"></MudInput>
+    </div>
+    <div class="col-4">
+        <label class="form-label">User Id</label>
+        <MudInput T="string" @bind-Value="Conn.userId" class="w-100" 
+                 
+                 
+                  Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="User Id"></MudInput>
+    </div>
+    <div class="col-4">
+        <label class="form-label">Password</label>
+        <MudInput T="string" @bind-Value="Conn.Password" InputType="InputType.Password"  class="w-100"
+                 
+                 
+                  Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Password"></MudInput>
+    </div>
+   
+    <div class="row mt-3">
+    <div class="col-4">
+        <label class="form-label">Database</label>
+        @if (databases.Any())
+        {
+        <MudSelect T="string"
+                           @bind-Value="Conn.Database" class="w-100" TextChanged="@(() => ConnectionAsync(false))"
+                   Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Database">
+            @foreach (var db in databases)
+            {
+                <MudSelectItem T="string" Value="@db">@db</MudSelectItem>
+            }
+        </MudSelect>
+        }
+        else
+        {
+            <MudInput T="string" @bind-Value="Conn.Database" class="w-100"
+                      Variant="MudBlazor.Variant.Outlined" 
+                      Margin="Margin.Dense" Placeholder="Database"></MudInput>
+        }
+       
+    </div>
+        <div class="align-self-end col-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" @bind-value="@Conn.TSC" checked="@Conn.TSC">
+                <label class="text-primary" style="font-size:0.85rem;">Trust Server Certificate</label>
+            </div>
+        </div>
+        <div class="align-self-end col-3">
+            <button class="btn btn-outline-secondary" @onclick="@(()=>ConnectionAsync(true))">Connect</button>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+    <div class="col-12">
+    <div class="pill-content">
+        <strong>Connection Status </strong> 
+        <ConnStatus Conn="Conn"/>
+       
+    </div>
+    </div>
+    </div>
+</div>
+
+@code{
+    [Parameter]
+    public Connection Conn { get; set; } = new();
+    bool Connected = false;
+    private List<string> databases = new List<string>();
+    protected override void OnParametersSet()
+    {
+        if (Conn == null)
+        {
+            Conn = new Connection();
+        }
+    }
+
+
+
+
+    private async Task ConnectionAsync(bool loadDatabasesList)
+    {
+        
+        if (string.IsNullOrWhiteSpace(Conn.ConnectionString))
+        {
+            return;
+        }
+
+        var (success, error) = await SchemaReader.TestConnectionAsync(Conn.ConnectionString);
+        if (success)
+        {
+            if (loadDatabasesList)
+            {
+                var result = await SchemaReader.GetDatabasesList(Conn.ConnectionString);
+                if (result.Any())
+                {
+                    databases = result.ToList();
+                }
+            }
+            Connected = true;
+            Conn.IsConnected = true;
+            _State.Conn = Conn;
+            _State.Conn.Database = Conn.Database;
+            await LoadSchemaAsync();
+            _State.NotifyStateChanged();
+            await InvokeAsync(StateHasChanged);
+        }
+       
+
+    }
+
+    private async Task LoadSchemaAsync()
+    {
+        if (_State.Conn.IsConnected)
+        {
+            try
+            {
+                _State.Schema = await SchemaReader.ReadSchemaAsync(_State.Conn.ConnectionString, includeViews: true);
+                _State.Procedures = await SchemaReader.ReadStoredProceduresAsync(_State.Conn.ConnectionString);
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+    }
+
+}

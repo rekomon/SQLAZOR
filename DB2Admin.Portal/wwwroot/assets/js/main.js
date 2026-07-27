@@ -145,8 +145,7 @@ window.InitSlimScroll = () => {
 			touchScrollStep: 20,
 		});
 
-		// Apply to demo box
-		$('#slimDemo').slimScroll({
+		$('.slimscroll').slimScroll({
 			height: '160px',
 			size: '5px',
 			color: '#00f0ff',
@@ -162,7 +161,7 @@ window.InitSlimScroll = () => {
 			touchScrollStep: 20,
 		});
 
-		// Style both scrollbars with glow
+
 		setTimeout(() => {
 			const cyan = getComputedStyle(document.documentElement).getPropertyValue('--cu-neon-cyan')
 				.trim() || '#00f0ff';
@@ -180,22 +179,21 @@ window.InitSlimScroll = () => {
 			});
 		}, 100);
 
-		console.log('✅ SlimScroll loaded and applied.');
 
 	} else {
-		// Fallback: use native scroll with custom CSS
-		console.warn('⚠️ SlimScroll not loaded – falling back to native scroll with cyberpunk styling.');
+	
 		const wrapper = document.getElementById('mainScrollWrapper');
 		wrapper.classList.add('native-scroll');
-		// Also apply to the demo box
-		const demo = document.getElementById('slimDemo');
-		demo.classList.add('native-scroll');
-		demo.style.height = '160px';
-		// Remove any slimscroll artifacts
+		try {
+			const scroll = document.getElementsByClassName('slimscroll');
+			if (scroll) {
+				scroll.classList.add('native-scroll');
+				scroll.style.height = '160px';
+			}
+		} catch { }
 		$('.slimScrollBar, .slimScrollRail').remove();
 	}
 
-	// On window resize, if SlimScroll is available, refresh
 	if ($.fn.slimScroll) {
 		$(window).resize(function () {
 			$('#mainScrollWrapper').slimScroll({ destroy: true });
@@ -233,6 +231,7 @@ window.initialize = () => {
 	animateCounters();
 	InitTabsandPills();
 	InitNavActive();
+	InitSlimScroll();
 	HighlightActiveNavScroll();
 }
 

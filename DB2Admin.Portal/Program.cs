@@ -1,6 +1,8 @@
-using SQLAZOR.Portal.Components;
 using MudBlazor;
 using MudBlazor.Services;
+using SQLAZOR.Portal.Components;
+using SQLAZOR.Services;
+
 
 namespace SQLAZOR.Portal
 {
@@ -26,6 +28,18 @@ namespace SQLAZOR.Portal
                 config.SnackbarConfiguration.HideTransitionDuration = 500;
                 config.SnackbarConfiguration.ShowTransitionDuration = 500;
                 config.SnackbarConfiguration.SnackbarVariant = MudBlazor.Variant.Filled;
+            });
+
+
+            builder.Services.AddScoped<ISchemaReaderService, SchemaReaderService>();
+            builder.Services.AddScoped<GenerationState>();
+            builder.Services.AddScoped<ISchemaCodeGeneratorService, SchemaCodeGeneratorService>();
+            builder.Services.AddScoped<IStoredProcedureGeneratorService, StoredProcedureGeneratorService>();
+            builder.Services.AddScoped<ICrudGeneratorService, CrudGeneratorService>();
+            builder.Services.AddScoped<IProjectScaffoldGeneratorService, ProjectScaffoldGeneratorService>();
+            builder.Services.AddHttpClient<IOllamaService, OllamaService>(client =>
+            {
+                client.Timeout = TimeSpan.FromMinutes(5); // local LLM inference can be slow, especially on first load of a model
             });
 
 

@@ -6,18 +6,18 @@ body {
 
 :root {
     --mud-palette-primary: var(--cu-text) !important;
-    --mud-palette-primary-darken: var(--cu-text) !important;
-    --mud-palette-primary-lighten: var(--cu-text) !important;
+    --mud-palette-primary-darken: var(--cu-neon-cyan) !important;
+    --mud-palette-primary-lighten: var(--cu-neon-cyan) !important;
     --mud-palette-secondary: var(--cu-text-secondary) !important;
-    --mud-palette-secondary-darken: var(--cu-text) !important;
-    --mud-palette-secondary-lighten: var(--cu-text) !important;
+    --mud-palette-secondary-darken: var(--cu-neon-cyan) !important;
+    --mud-palette-secondary-lighten: var(--cu-neon-cyan) !important;
     --mud-palette-success: var(--theme-success) !important;
     --mud-palette-info: var(--theme-info) !important;
     --mud-palette-warning: var(--theme-warning) !important;
     --mud-palette-error: var(--theme-danger) !important;
     --mud-palette-dark: var(--theme-dark) !important;
     --mud-palette-background: var(--cu-bg) !important;
-    --mud-palette-text-primary: var(--cu-text) !important;
+    --mud-palette-text-primary: var(--cu-neon-cyan) !important;
     --mud-typography-subtitle2-family: var(--cu-font) !important;
     --mud-palette-surface: var(--cu-bg) !important;
     --mud-palette-lines-inputs: var(--cu-input-border) !important;
@@ -37,39 +37,33 @@ body {
 
 .legend {
     font-family: var(--cu-font) !important;
-    
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 .mud-input > input.mud-input-root, .mud-select-input, .mud-input-outlined-border, mud-input-label,
 .mud-input-outlined-border.legend, .mud-input.mud-input-outlined > .mud-input-outlined-border legend {
     font-family: var(--cu-font) !important;
-   
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 .mud-input.mud-input-outlined > .mud-input-outlined-border legend {
     font-family: var(--cu-font) !important;
-   
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 .mud-typography {
     font-family: var(--cu-font) !important;
-  
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 .mud-input-label {
     font-family: var(--cu-font) !important;
-  
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 .mud-table-root .mud-table-body .mud-table-cell {
     font-family: var(--cu-font) !important;
-   
-    color: var(--cu-text) !important;
+    color: var(--cu-neon-cyan) !important;
 }
 
 
