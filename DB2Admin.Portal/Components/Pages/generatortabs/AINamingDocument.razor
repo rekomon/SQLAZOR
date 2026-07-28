@@ -1,0 +1,198 @@
+﻿@using static SQLAZOR.Services.GenerationState
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+@inject IOllamaService Ollama
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex justify-content-start align-items-center mb-3">
+                <h5 class="card-title text-primary mb-0">AI naming & documentation </h5><span class="text-muted small"> (Ollama, optional)</span>
+            </div>
+            <p class="text-muted">
+                Ask questions about the loaded schema — relationships, what a table is for, or ask it
+                to write a T-SQL or LINQ query. Runs against your own Ollama instance; nothing is sent
+                anywhere else.
+            </p>
+
+            <div class="row">
+                <div class="col-12">
+                    <div class="actions">
+                        <button class="btn btn-outline-secondary" @onclick="SuggestNamingForSelectedTablesAsync"
+                                disabled="@(_namingBusy || SelectedTableKeys.Count == 0)">
+                            Suggest names &amp; docs (AI)
+                        </button>
+                        @if (_namingBusy)
+                        {
+                            <div class="text-center">
+                                <DBSPINNER Title=@($"Analyzing {_namingProgress}") Subtitle="Suggest Naming and docs" />
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="col-12">
+                    @if (!string.IsNullOrEmpty(_namingStatusMessage))
+                    {
+                        <div class="status-badge @(_namingStatusIsError ? "status-failed" : "status-completed")">@_namingStatusMessage</div>
+                    }
+
+                    @if (NamingSuggestions.Count > 0)
+                    {
+                        <ul class="list-group mt-3">
+                            @foreach (var table in Schema.Tables.Where(t => NamingSuggestions.ContainsKey(t.FullyQualifiedName)).OrderBy(t => t.TableName))
+                            {
+                                var key = table.FullyQualifiedName;
+                                var suggestion = NamingSuggestions[key];
+                                var mechanicalName = MechanicalClassName(table.TableName);
+                                <li class="list-group-item">
+                                    <div class="table-item">
+                                        <input type="checkbox" class="form-check-input"
+                                               checked="@AppliedNamingTableKeys.Contains(key)"
+                                               @onchange="e => ToggleNamingApplied(table, suggestion, (bool)e.Value!)" />
+                                        <span class="text-primary">@table.TableName</span>
+                                        @if (!suggestion.SuggestedClassName.Equals(mechanicalName, StringComparison.Ordinal))
+                                        {
+                                            <span class="text-muted small">@mechanicalName → <strong>@suggestion.SuggestedClassName</strong></span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">(name already clear)</span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(suggestion.ClassSummary))
+                                    {
+                                        <p class="text-muted small suggestion-summary">@suggestion.ClassSummary</p>
+                                    }
+                                    @{
+                                        var renamedProps = suggestion.Properties.Where(p => !p.SuggestedPropertyName.Equals(
+                                            NamingHelper.EscapeIfReserved(NamingHelper.ToPascalCase(p.ColumnName)), StringComparison.Ordinal)).ToList();
+                                    }
+                                    @if (renamedProps.Count > 0)
+                                    {
+                                        <p class="text-muted small suggestion-summary">
+                                            Properties: @string.Join(", ", renamedProps.Select(p => $"{p.ColumnName} → {p.SuggestedPropertyName}"))
+                                        </p>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+@code{
+     [Parameter]
+    public DatabaseSchema? Schema { get; set; } 
+     [Parameter]
+    public HashSet<string> SelectedTableKeys { get; set; }
+    [Parameter]
+    public Dictionary<string, TableNamingSuggestion> NamingSuggestions { get; set; } 
+    [Parameter]
+    public HashSet<string> AppliedNamingTableKeys { get; set; }
+    private bool _namingBusy;
+    private string _namingProgress = string.Empty;
+    private string? _namingStatusMessage;
+    private bool _namingStatusIsError;
+
+    private bool _implicitFkChecked;
+    private static string MechanicalClassName(string tableName) =>
+       NamingHelper.Singularize(NamingHelper.ToPascalCase(tableName));
+
+    private async Task SuggestNamingForSelectedTablesAsync()
+    {
+        if (Schema is null || SelectedTableKeys.Count == 0) return;
+
+        _namingBusy = true;
+        _namingStatusMessage = null;
+        var failures = new List<string>();
+
+        var tables = Schema.Tables
+            .Where(t => SelectedTableKeys.Contains(t.FullyQualifiedName) && !t.IsView)
+            .ToList();
+
+        foreach (var table in tables)
+        {
+            _namingProgress = table.TableName;
+            StateHasChanged();
+
+            try
+            {
+                var prompt = NamingAssistant.BuildPrompt(table);
+                var json = await Ollama.GenerateJsonAsync(_State.OllamaEndpoint.Trim(), _State.OllamaModel.Trim(), prompt);
+                var suggestion = NamingAssistant.TryParse(table.FullyQualifiedName, json);
+
+                if (suggestion is null)
+                {
+                    failures.Add(table.TableName);
+                }
+                else
+                {
+                    _State.NamingSuggestions[table.FullyQualifiedName] = suggestion;
+                    _State.NotifyStateChanged();
+                    InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{table.TableName} ({ex.Message})");
+            }
+        }
+
+        _namingBusy = false;
+        _namingProgress = string.Empty;
+
+        var successCount = tables.Count - failures.Count;
+        _namingStatusMessage = failures.Count == 0
+            ? $"Got suggestions for {successCount} table(s)."
+            : $"Got suggestions for {successCount} table(s). Failed: {string.Join(", ", failures)}.";
+        _namingStatusIsError = failures.Count > 0 && successCount == 0;
+    }
+
+    /// <summary>
+    /// Applies or reverts a naming suggestion by mutating the shared TableInfo/ColumnInfo objects
+    /// directly — they're the same instances Generate() reads from, so this takes effect immediately
+    /// with no extra "apply" step. Reverting recomputes the original mechanical name rather than
+    /// caching it, since NamingHelper's transforms are pure functions of the raw DB name.
+    /// </summary>
+    private void ToggleNamingApplied(TableInfo table, TableNamingSuggestion suggestion, bool apply)
+    {
+        var key = table.FullyQualifiedName;
+
+        if (apply)
+        {
+            table.ClassName = suggestion.SuggestedClassName;
+            table.Summary = suggestion.ClassSummary;
+
+            foreach (var propSuggestion in suggestion.Properties)
+            {
+                var col = table.Columns.FirstOrDefault(c => c.ColumnName.Equals(propSuggestion.ColumnName, StringComparison.OrdinalIgnoreCase));
+                if (col is null) continue;
+
+                col.PropertyName = propSuggestion.SuggestedPropertyName;
+                col.Summary = propSuggestion.Summary;
+            }
+
+            _State.AppliedNamingTableKeys.Add(key);
+            _State.NotifyStateChanged();
+            InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            table.ClassName = MechanicalClassName(table.TableName);
+            table.Summary = null;
+
+            foreach (var col in table.Columns)
+            {
+                col.PropertyName = NamingHelper.EscapeIfReserved(NamingHelper.ToPascalCase(col.ColumnName));
+                col.Summary = null;
+            }
+
+            _State.AppliedNamingTableKeys.Remove(key);
+            _State.NotifyStateChanged();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+}

@@ -176,7 +176,7 @@ public sealed class OllamaService : IOllamaService
             model,
             prompt,
             format = "json",
-            stream = true,
+            stream = false,
             options = new { temperature = 0.2 }
         };
         var json = JsonSerializer.Serialize(payload);

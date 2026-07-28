@@ -1,0 +1,54 @@
+﻿.db-relation-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card-bg, rgba(0, 20, 30, 0.7));
+    border: 1px solid var(--card-border, rgba(0, 240, 255, 0.25));
+    border-radius: var(--radius, 8px);
+    box-shadow: var(--shadow, 0 0 30px rgba(0, 240, 255, 0.15));
+    backdrop-filter: blur(12px);
+    transition: all var(--transition, .25s ease);
+    max-width: 180px;
+    margin: 0 auto;
+}
+
+    .db-relation-spinner svg {
+        width: 100%;
+        max-width: 120px;
+        height: auto;
+        display: block;
+    }
+
+.spinner-label {
+    text-align: center;
+    line-height: 1.4;
+}
+
+    .spinner-label .label-main {
+        display: block;
+        font-family: var(--font-cyber, 'Orbitron', monospace);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        color: var(--text, #e0f0ff);
+    }
+
+    .spinner-label .label-sub {
+        display: block;
+        font-size: 0.6rem;
+        color: var(--muted, rgba(0, 240, 255, 0.5));
+        font-family: var(--font, 'Inter', sans-serif);
+        letter-spacing: 0.3px;
+    }
+
+/* ─── Light mode adjustments ─── */
+[data-theme="light"] .db-relation-spinner {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 240, 255, 0.3);
+}
+
+[data-theme="light"] .spinner-label .label-main {
+    color: #0a1a2a;
+}

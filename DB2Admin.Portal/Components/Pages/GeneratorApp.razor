@@ -25,10 +25,10 @@
         <div>
             <ul class="nav nav-tabs" id="myTab" role="tablist">
                 <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="conntab-tab" data-bs-toggle="tab"
+                                    <MudButton class="nav-link active" id="conntab-tab" data-bs-toggle="tab"
                                             data-bs-target="#conntab" type="button" role="tab">
                         SQL Connection
-                    </button>
+                    </MudButton>
                 </li>
                 <li class="nav-item" role="presentation" >
 
@@ -40,14 +40,14 @@
                 <li class="nav-item" role="presentation">
                     <MudButton class="nav-link" id="AISAtab-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
                                                data-bs-target="#AISAtab" type="button" role="tab">
-                        AI schema assistant
+                        AI Assistant
                     </MudButton>
 
                 </li>
 
                 <li class="nav-item" role="presentation">
-                    <MudButton class="nav-link" id="tab4-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
-                            data-bs-target="#tab4" type="button" role="tab">
+                                    <MudButton class="nav-link" id="AINameingDoc-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
+                                               data-bs-target="#AINameingDoc" type="button" role="tab">
                         AI naming & documentation
                     </MudButton>
 
@@ -91,10 +91,11 @@
                 <div class="tab-pane fade" id="AISAtab" role="tabpanel">
                     <AISchemaAssistant/>
                     </div>
-                <div class="tab-pane fade" id="tab7" role="tabpanel">
-                    <p><span style="color:var(--cu-neon-cyan); font-weight:600;">Results</span> — Toggle features.</p>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" /> <label class="form-check-label">Feature X</label></div>
-                </div>
+                <div class="tab-pane fade" id="AINameingDoc" role="tabpanel">
+                                    <AINamingDocument Schema="_State.Schema" SelectedTableKeys="_State.SelectedTableKeys" AppliedNamingTableKeys="_State.AppliedNamingTableKeys"
+                     NamingSuggestions="_State.NamingSuggestions"/>
+                    </div>
+
             </div>
         </div>
 
