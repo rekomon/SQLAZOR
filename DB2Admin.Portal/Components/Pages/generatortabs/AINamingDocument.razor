@@ -9,9 +9,9 @@
                 <h5 class="card-title text-primary mb-0">AI naming & documentation </h5><span class="text-muted small"> (Ollama, optional)</span>
             </div>
             <p class="text-muted">
-                Ask questions about the loaded schema — relationships, what a table is for, or ask it
-                to write a T-SQL or LINQ query. Runs against your own Ollama instance; nothing is sent
-                anywhere else.
+                Sends each selected table's column list (names, SQL types only — no data) to LLM model and
+                asks it to suggest clearer C# names where the mechanical PascalCase result is genuinely
+                unclear, plus short doc comments. Nothing is auto-applied — review and tick per table.
             </p>
 
             <div class="row">
@@ -132,7 +132,7 @@
                 {
                     _State.NamingSuggestions[table.FullyQualifiedName] = suggestion;
                     _State.NotifyStateChanged();
-                    InvokeAsync(StateHasChanged);
+                   await InvokeAsync(StateHasChanged);
                 }
             }
             catch (Exception ex)

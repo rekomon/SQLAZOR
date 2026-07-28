@@ -1,0 +1,89 @@
+﻿@using static SQLAZOR.Services.GenerationState
+@inject GenerationState _State
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex justify-content-start align-items-center mb-3">
+                <h5 class="card-title text-primary mb-0">Implicit relationships </h5>
+                <span class="text-muted small"> (naming heuristic, no AI call)</span>
+            </div>
+            <p class="text-muted">
+                Flags columns that look like foreign keys by naming convention (e.g. CustomerId)
+                but have no real FK constraint in the database. 
+                Purely deterministic name, type matching — instant,
+                and more trustworthy here than an LLM guess. Accept only the ones you know are real;
+                accepted ones get a normal navigation property, Fluent config, same as a real FK would.
+            </p>
+
+            <div class="row">
+                <div class="col-12">
+                    <div class="actions">
+                        <button class="btn btn-outline-secondary" @onclick="DetectImplicitRelationships"
+                                disabled="@(SelectedTableKeys.Count == 0)">
+                            Detect implicit relationships
+                        </button>
+                        
+                    </div>
+                </div>
+                <div class="col-12">
+                    @if (_implicitFkChecked && ImplicitFkCandidates.Count == 0)
+                    {
+                        <p class="muted small">No naming-convention matches found among the selected tables.</p>
+                    }
+
+                    @if (ImplicitFkCandidates.Count > 0)
+                    {
+                         <ul class="list-group mt-3">
+                            @foreach (var candidate in ImplicitFkCandidates.OrderByDescending(c => c.Confidence).ThenBy(c => c.ParentTable))
+                            {
+                                var key = candidate.Key;
+                                 <li class="list-group-item">
+                                    <input type="checkbox" class="form-check-input"
+                                           checked="@AcceptedImplicitFkKeys.Contains(key)"
+                                           @onchange="e => ToggleImplicitFk(key, (bool)e.Value!)" />
+                                    <span>@($"{candidate.ParentTable}.{candidate.ParentColumn} \u2192 {candidate.ReferencedTable}.{candidate.ReferencedColumn}")</span>
+                                    <span class="badge">@candidate.Confidence</span>
+                               
+                                <p class="muted small suggestion-summary">@candidate.Reason</p>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public DatabaseSchema? Schema { get; set; }
+    [Parameter]
+    public HashSet<string> SelectedTableKeys { get; set; }
+    [Parameter]
+    public List<ImplicitForeignKeyCandidate> ImplicitFkCandidates { get; set; } = [];
+    [Parameter]
+    public HashSet<string> AcceptedImplicitFkKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    private bool _implicitFkChecked;
+
+    private void DetectImplicitRelationships()
+    {
+        if (Schema is null) return;
+
+        _State.ImplicitFkCandidates = ImplicitRelationshipDetector.Detect(Schema, SelectedTableKeys);
+        _State.AcceptedImplicitFkKeys.Clear();
+        _implicitFkChecked = true;
+
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleImplicitFk(string key, bool accepted)
+    {
+        if (accepted) _State.AcceptedImplicitFkKeys.Add(key);
+        else _State.AcceptedImplicitFkKeys.Remove(key);
+
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+}

@@ -54,8 +54,8 @@
                 </li>
 
                 <li class="nav-item" role="presentation">
-                    <MudButton class="nav-link" id="tab5-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
-                            data-bs-target="#tab5" type="button" role="tab">
+                                    <MudButton class="nav-link" id="ImplicitRelation-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
+                                               data-bs-target="#ImplicitRelation" type="button" role="tab">
                         Implicit relationships
                     </MudButton>
 
@@ -95,6 +95,12 @@
                                     <AINamingDocument Schema="_State.Schema" SelectedTableKeys="_State.SelectedTableKeys" AppliedNamingTableKeys="_State.AppliedNamingTableKeys"
                      NamingSuggestions="_State.NamingSuggestions"/>
                     </div>
+
+                                <div class="tab-pane fade" id="ImplicitRelation" role="tabpanel">
+                                    <ImplicitRelationTab Schema="_State.Schema" SelectedTableKeys="_State.SelectedTableKeys" 
+                                    ImplicitFkCandidates="_State.ImplicitFkCandidates" 
+                                    AcceptedImplicitFkKeys="_State.AcceptedImplicitFkKeys" />
+                                </div>
 
             </div>
         </div>
