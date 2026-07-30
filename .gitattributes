@@ -3,6 +3,13 @@
 ###############################################################################
 * text=auto
 
+# Ignore all CSS files
+*.css linguist-detectable=false
+
+*.rb linguist-language=C#
+
+assets/* linguist-vendored
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
