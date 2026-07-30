@@ -204,6 +204,9 @@ namespace SQLAZOR.Services
             var insertValues = string.Join(", ", creatableCols.Select(c => $"@{c.PropertyName}"));
             var setClauses = string.Join(", ", updatableCols.Select(c => $"[{c.ColumnName}] = @{c.PropertyName}"));
 
+            var selectColumnList = Constant.BuildSelectColumnList(table);
+            var outputColumnList = Constant.BuildSelectColumnList(table, "INSERTED");
+
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using System.Data;");
@@ -237,7 +240,7 @@ namespace SQLAZOR.Services
             sb.AppendLine("    {");
             sb.AppendLine("        try");
             sb.AppendLine("        {");
-            sb.AppendLine($"            const string sql = \"SELECT * FROM {tableRef}\";");
+            sb.AppendLine($"            const string sql = \"SELECT {selectColumnList} FROM {tableRef}\";");
             sb.AppendLine($"            var entities = (await _db.QueryAsync<{table.ClassName}>(");
             sb.AppendLine("                new CommandDefinition(sql, cancellationToken: cancellationToken))).ToList();");
             sb.AppendLine($"            var dtos = entities.Adapt<List<{table.ClassName}Dto>>();");
@@ -268,7 +271,7 @@ namespace SQLAZOR.Services
             sb.AppendLine("    {");
             sb.AppendLine("        try");
             sb.AppendLine("        {");
-            sb.AppendLine($"            const string sql = \"SELECT * FROM {tableRef} WHERE {whereSql}\";");
+            sb.AppendLine($"            const string sql = \"SELECT {selectColumnList} FROM {tableRef} WHERE {whereSql}\";");
             sb.AppendLine($"            var entity = await _db.QuerySingleOrDefaultAsync<{table.ClassName}>(");
             sb.AppendLine($"                new CommandDefinition(sql, {pkParamsObj}, cancellationToken: cancellationToken));");
             sb.AppendLine();
@@ -306,11 +309,12 @@ namespace SQLAZOR.Services
             sb.AppendLine("    {");
             sb.AppendLine("        try");
             sb.AppendLine("        {");
-            sb.AppendLine("            // OUTPUT INSERTED.* hands back the full row (identity value + any server-side");
-            sb.AppendLine("            // defaults) in one round trip - skip this if the table has AFTER INSERT triggers.");
+            sb.AppendLine("            // OUTPUT hands back the full new row (identity value + any server-side defaults)");
+            sb.AppendLine("            // in one round trip, columns aliased to property names for Dapper's mapper -");
+            sb.AppendLine("            // skip the OUTPUT clause if the table has AFTER INSERT triggers.");
             sb.AppendLine("            const string sql = @\"");
             sb.AppendLine($"                INSERT INTO {tableRef} ({insertColumns})");
-            sb.AppendLine("                OUTPUT INSERTED.*");
+            sb.AppendLine($"                OUTPUT {outputColumnList}");
             sb.AppendLine($"                VALUES ({insertValues})\";");
             sb.AppendLine();
             sb.AppendLine($"            var created = await _db.QuerySingleAsync<{table.ClassName}>(");
@@ -706,6 +710,9 @@ namespace SQLAZOR.Services
                     sb.AppendLine("                <MudIconButton Icon=\"@Icons.Material.Filled.Delete\" Size=\"Size.Small\" Color=\"Color.Error\" OnClick=\"() => DeleteAsync(context)\" />");
                     sb.AppendLine("            </MudTd>");
                     sb.AppendLine("        </RowTemplate>");
+                    sb.AppendLine("        <PagerContent>");
+                    sb.AppendLine("        <MudTablePager />");
+                    sb.AppendLine("        </PagerContent>");
                     sb.AppendLine("    </MudTable>");
                     sb.AppendLine("}");
                     break;

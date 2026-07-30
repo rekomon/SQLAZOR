@@ -72,7 +72,7 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk.Web\">");
         sb.AppendLine();
         sb.AppendLine("  <PropertyGroup>");
-        sb.AppendLine("    <TargetFramework>net8.0</TargetFramework>");
+        sb.AppendLine($"    <TargetFramework>{Constant._TargetFramework_ver}</TargetFramework>");
         sb.AppendLine("    <Nullable>enable</Nullable>");
         sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
         sb.AppendLine($"    <RootNamespace>{rootNamespace}</RootNamespace>");
@@ -81,22 +81,22 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         sb.AppendLine("  </PropertyGroup>");
         sb.AppendLine();
         sb.AppendLine("  <ItemGroup>");
-        sb.AppendLine("    <PackageReference Include=\"Microsoft.EntityFrameworkCore.SqlServer\" Version=\"8.0.11\" />");
-        sb.AppendLine("    <PackageReference Include=\"Microsoft.EntityFrameworkCore.Design\" Version=\"8.0.11\">");
+        sb.AppendLine($"    <PackageReference Include=\"Microsoft.EntityFrameworkCore.SqlServer\" Version=\"{Constant._SqlServer_ver}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Microsoft.EntityFrameworkCore.Design\" Version=\"{Constant._CoreDesign_ver}\">");
         sb.AppendLine("      <PrivateAssets>all</PrivateAssets>");
         sb.AppendLine("      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>");
         sb.AppendLine("    </PackageReference>");
 
         if (includeCrudServices)
         {
-            sb.AppendLine("    <PackageReference Include=\"Microsoft.Data.SqlClient\" Version=\"5.2.2\" />");
-            sb.AppendLine("    <PackageReference Include=\"Dapper\" Version=\"2.1.35\" />");
-            sb.AppendLine("    <PackageReference Include=\"Mapster\" Version=\"7.4.0\" />");
+            sb.AppendLine($"    <PackageReference Include=\"Microsoft.Data.SqlClient\" Version=\"{Constant._SqlClient_ver}\" />");
+            sb.AppendLine($"    <PackageReference Include=\"Dapper\" Version=\"{Constant._Dapper_ver}\" />");
+            sb.AppendLine($"    <PackageReference Include=\"Mapster\" Version=\"{Constant._Mapster_ver}\" />");
         }
 
         if (pageStyle == PageStyle.MudBlazor)
         {
-            sb.AppendLine("    <PackageReference Include=\"MudBlazor\" Version=\"7.15.0\" />");
+            sb.AppendLine($"    <PackageReference Include=\"MudBlazor\" Version=\"{Constant._MudBlazor_ver}\" />");
         }
         // Tabler needs no NuGet package - its CSS/JS are loaded from CDN in App.razor.
 
@@ -243,6 +243,7 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         sb.AppendLine("@using Microsoft.AspNetCore.Components.Forms");
         sb.AppendLine("@using Microsoft.AspNetCore.Components.Routing");
         sb.AppendLine("@using Microsoft.AspNetCore.Components.Web");
+        sb.AppendLine("@using static Microsoft.AspNetCore.Components.Web.RenderMode");
         sb.AppendLine("@using Microsoft.JSInterop");
         sb.AppendLine($"@using {rootNamespace}");
         sb.AppendLine($"@using {rootNamespace}.Components");
@@ -581,12 +582,12 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
                     sb.AppendLine($"            <MudText Typo=\"Typo.subtitle1\" Class=\"mb-2\">{insight.Title}</MudText>");
                     if (insight.ChartType == InsightChartType.Pie)
                     {
-                        sb.AppendLine($"            <MudChart Type=\"ChartType.Pie\" InputData=\"@_data{i}\" InputLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
+                        sb.AppendLine($"            <MudChart ChartType=\"ChartType.Pie\" ChartLabels=\"@_data{i}\" InputLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
                     }
                     else
                     {
                         var mudType = insight.ChartType == InsightChartType.Line ? "ChartType.Line" : "ChartType.Bar";
-                        sb.AppendLine($"            <MudChart Type=\"{mudType}\" ChartSeries=\"@_series{i}\" XAxisLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
+                        sb.AppendLine($"            <MudChart ChartType=\"{mudType}\" ChartSeries=\"@_series{i}\" ChartLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
                     }
                     sb.AppendLine("        </MudPaper>");
                     sb.AppendLine("    </MudItem>");
@@ -700,20 +701,13 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
 
         for (var i = 0; i < insights.Count; i++)
         {
-            var insight = insights[i];
-            sb.AppendLine($"    private List<ChartDataPoint> _points{i} = [];");
+            sb.AppendLine($"    private List<ChartDataPoint> _points{i} = new();");
             if (pageStyle == PageStyle.MudBlazor)
             {
-                if (insight.ChartType == InsightChartType.Pie)
-                {
-                    sb.AppendLine($"    private double[] _data{i} = [];");
-                    sb.AppendLine($"    private string[] _labels{i} = [];");
-                }
-                else
-                {
-                    sb.AppendLine($"    private List<ChartSeries> _series{i} = [];");
-                    sb.AppendLine($"    private string[] _labels{i} = [];");
-                }
+                // MudBlazor 9 unified Pie/Bar/Line onto one ChartSeries<T> + labels model - no more
+                // separate InputData/InputLabels for Pie.
+                sb.AppendLine($"    private List<ChartSeries<double>> _series{i} = new();");
+                sb.AppendLine($"    private string[] _labels{i} = Array.Empty<string>();");
             }
         }
 
@@ -734,16 +728,17 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
                 sb.AppendLine($"        _points{i} = await Stats.Get{methodName}Async();");
                 if (pageStyle == PageStyle.MudBlazor)
                 {
-                    if (insight.ChartType == InsightChartType.Pie)
-                    {
-                        sb.AppendLine($"        _data{i} = _points{i}.Select(p => p.Value).ToArray();");
-                        sb.AppendLine($"        _labels{i} = _points{i}.Select(p => p.Label).ToArray();");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"        _series{i} = [new ChartSeries {{ Name = \"{Constant.EscapeXmlDoc(insight.Title)}\", Data = _points{i}.Select(p => p.Value).ToArray() }}];");
-                        sb.AppendLine($"        _labels{i} = _points{i}.Select(p => p.Label).ToArray();");
-                    }
+                    sb.AppendLine($"        _labels{i} = _points{i}.Select(p => p.Label).ToArray();");
+                    //sb.AppendLine($"        _series{i} = [new ChartSeries<double> {{ Name = \"{EscapeXmlDoc(insight.Title)}\", Data = _points{i}.Select(p => p.Value).ToArray().AsChartDataSet() }}];");
+
+                    sb.AppendLine($"        _series{i} = new List<ChartSeries<double>>");
+                    sb.AppendLine("         {");
+                    sb.AppendLine($"            new ChartSeries<double>");
+                    sb.AppendLine("                 {");
+                    sb.AppendLine($"                    Name = \"{Constant.EscapeXmlDoc(insight.Title)}\",");
+                    sb.AppendLine($"                    Data = _points{i}.Select(p => p.Value).ToArray()");
+                    sb.AppendLine("                 }");
+                    sb.AppendLine("        };");
                 }
             }
             sb.AppendLine("    }");

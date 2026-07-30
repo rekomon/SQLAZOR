@@ -1,0 +1,531 @@
+﻿@using static SQLAZOR.Portal.Helper.Enums
+@using static SQLAZOR.Services.GenerationState
+@inject ISchemaCodeGeneratorService _SchemaCode
+@inject IStoredProcedureGeneratorService _ProcedureGenerator
+@inject ICrudGeneratorService _CrudGenerator
+@inject IProjectScaffoldGeneratorService _ProjectGenerator
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+@inject IOllamaService Ollama
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex justify-content-start align-items-center mb-3">
+                <h5 class="card-title text-primary mb-0">Generate</h5>
+            </div>
+                <div class="row">
+                     <div class="col-12 mb-3">
+                    <label class="form-label" for="txtrootname">Root namespace</label>
+                    <MudInput T="string" @bind-Value="_State.RootNamespace" id="txtrootname" class="w-100"
+                              Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="MyApp.Data"></MudInput>
+                     </div>
+                    <div class="col-12 mb-3">
+                    <label class="form-label" for="txtdbclass">DbContext class name</label>
+                    <MudInput T="string" @bind-Value="_State.DbContextName" id="txtdbclass" class="w-100"
+                              Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="AppDbContext"></MudInput>
+                     </div>
+                    <div class="col-12 mb-3">
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="_generateCrudServices" @bind:after="OnGenerateCrudServicesChanged">
+                            <label class="text-primary" style="font-size:0.85rem;">
+                                Generate CRUD DTOs + services (Dapper + Mapster, wrapped in Response Result)
+                            </label>
+                       
+                        <Popover Title="Generate CRUD" Class="w-80"
+                                 Content=" Wires everything above into an actual project: <code>{App}.csproj</code> with exactly the package
+                            references the options you picked need, <code>Program.cs</code> (DbContext / Dapper / Controllers /
+                            MudBlazor registration — only for what's selected), <code>appsettings.json</code> with the connection
+                            string you used above, plus <code>Components/App.razor</code>, <code>Routes.razor</code>,
+                            <code>_Imports.razor</code>, and a modern admin-dashboard <code>MainLayout</code> + sidebar
+                            <code>NavMenu</code> with a link per generated table."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-sm btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                        </div>
+
+                        
+                    </div>
+
+
+                    <div class="col-12 mb-3">
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="_generateApiEndpoints" 
+                        @bind:after="OnGenerateApiEndpointsChanged">
+                            <label class="text-primary" style="font-size:0.85rem;">
+                                Generate API endpoints (ASP.NET Core controllers)
+                            </label>
+                        <Popover Title="Generate API" Class="w-80"
+                                 Content="  One [ApiController] per table under Controllers/, exposing the service's five methods as
+                            GET / GET{id} / POST / PUT{id} / DELETE{id},
+                            each just forwarding to the service and returning its ResponseResult with the matching HTTP status code."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                        </div>
+                    
+                            
+                        
+                    </div>
+
+                    <div class="col-12 mb-3">
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="_generateHttpClientServices"
+                        disabled="@(!_generateApiEndpoints)">
+                            <label class="text-primary" style="font-size:0.85rem;">
+                                    Generate HttpClient service classes (calls the generated endpoints)
+                            </label>
+                        <Popover Title="Generate HttpClient service" Class="w-80"
+                                 Content=" One {Table}HttpService per table implementing the same I{Table}Service interface as the Dapper version,
+                            but calling the controller over HTTP instead — swap which one you register in DI depending on whether
+                            this project owns the database or talks to the API remotely.
+                            Only available once ' Generate API endpoints' is checked, since there'd be nothing to call otherwise."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                        </div>
+                           
+                    </div>
+
+                     <div class="col-12 mb-3">
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" 
+                               @bind:after="OnGenerateBlazorPagesChanged"
+                               disabled="@(!_generateCrudServices)"
+                        @bind-value="_generateBlazorPages">
+                            <label class="text-primary" style="font-size:0.85rem;">
+                                        Generate Blazor Server UI pages (list + create/edit)
+                            </label>
+                        <Popover Title="Generate Blazor Pages" Class="w-80"
+                                 Content=" Per table, a folder Pages/{Table}/ with three files: {Table}List.razor,
+                            {Table}Create.razor, and {Table}Edit.razor.
+                            All three inject I{Table}Service directly, so they work unmodified against whichever
+                            implementation is registered — Dapper or HttpClient — with no changes needed either way."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                        </div>
+                           
+                    </div>
+
+                <div class="col-12 mb-3">
+                                    <div class="field-row">
+                        <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">Page style</label>
+                                        <div class="actions" style="gap: 18px;">
+                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.Plain)"
+                                                       @onchange="() => _pageStyle = PageStyle.Plain" disabled="@(!_generateBlazorPages)" />
+                                                Plain HTML
+                                            </label>
+                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.MudBlazor)"
+                                                       @onchange="() => _pageStyle = PageStyle.MudBlazor" disabled="@(!_generateBlazorPages)" />
+                                                MudBlazor
+                                            </label>
+                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.Tabler)"
+                                                       @onchange="() => _pageStyle = PageStyle.Tabler" disabled="@(!_generateBlazorPages)" />
+                                                Tabler
+                                            </label>
+                                        <Popover Title="Page Style (depend on generate Blazor )" Class="w-80"
+                                     Content=" <strong>Plain</strong>: no extra package, plain HTML + Bootstrap-style classes.
+                                            <strong>MudBlazor</strong>: MudTable/MudTextField/MudForm components — needs the <code>MudBlazor</code>
+                                            package plus <code>AddMudServices()</code> and the provider components in your layout (see README).
+                                            <strong>Tabler</strong>: the <a href='https://preview.tabler.io' target='_blank' rel='noopener'>Tabler</a>
+                                            admin dashboard look (CDN CSS/JS, no NuGet package) — sidebar nav, cards, page headers, the works."
+                                     Placement="top"
+                                     Trigger="click">
+                                <button class="btn btn-outline-secondary">🔦 Hint</button>
+                            </Popover>
+                                        </div>
+                                       
+                                    </div>
+                                </div>
+
+                <div class="col-12 mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox"
+                               @bind="_generateProjectScaffold">
+                        <label class="text-primary" style="font-size:0.85rem;">
+                            Generate a full runnable project (Program.cs, .csproj, admin dashboard shell)
+                        </label>
+                        <Popover Title="Generate Blazor Pages" Class="w-80"
+                                 Content="Wires everything above into an actual project: <code>{App}.csproj</code> with exactly the package
+                            references the options you picked need, <code>Program.cs</code> (DbContext / Dapper / Controllers /
+                            MudBlazor registration — only for what's selected), <code>appsettings.json</code> with the connection
+                            string you used above, plus <code>Components/App.razor</code>, <code>Routes.razor</code>,
+                            <code>_Imports.razor</code>, and a modern admin-dashboard <code>MainLayout</code> + sidebar
+                            <code>NavMenu</code> with a link per generated table."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                    </div>
+
+                </div>
+
+
+
+                @if (_generateProjectScaffold)
+                
+                {
+                    <div class="col-12 mb-3">
+                        <label class="form-label" for="appName">Application name</label>
+                        <MudInput T="string" @bind-Value="_State.ApplicationName" id="appName" class="w-100"
+                                  Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="AppDbContext"></MudInput>
+                    </div>
+                }
+
+                @if (_generateProjectScaffold && _generateCrudServices)
+                {
+                    <div class="col-12 mb-3">
+                        <div class="field-row">
+                            <label class="text-primary">AI dashboard insights <span class="text-muted small">(Ollama, optional)</span></label>
+                            <Popover Title="AI dashboard insights" Class="w-80"
+                                     Content=" Asks LLM Model to suggest a few chart-worthy queries from the selected tables (counts by
+                                category, trends over time). Each suggestion is test-run against your database and shown
+                                with a live preview before you decide whether to include it — nothing gets baked in unvalidated."
+                                     Placement="top"
+                                     Trigger="click">
+                                <button class="btn btn-outline-secondary">🔦 Hint</button>
+                            </Popover>
+                            <div class="actions mb-2">
+                                <button class="btn btn-outline-secondary" @onclick="SuggestDashboardInsightsAsync" disabled="@_insightsBusy">
+                                    @(_insightsBusy ? "Analyzing…" : "Suggest dashboard insights (AI)")
+                                </button>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_insightsStatusMessage))
+                            {
+                                <div class="status-badge mb-2 @(_insightsStatusIsError ? "status-failed" : "status-completed")">@_insightsStatusMessage</div>
+                            }
+                            @if (_State.DashboardInsights.Count > 0)
+                            {
+                                <ul class="list-group">
+                                    @foreach (var candidate in _State.DashboardInsights)
+                                    {
+                                        <li class="list-group-item">
+                                            <label class="table-item">
+                                                <input type="checkbox" class="form-check-input"
+                                                       checked="@_State.AcceptedInsightTitles.Contains(candidate.Title)"
+                                                       disabled="@(!candidate.IsValid)"
+                                                       @onchange="e => ToggleInsightAccepted(candidate.Title, (bool)e.Value!)" />
+                                                <span>@candidate.Title</span>
+                                                <span class="badge">@candidate.ChartType</span>
+                                                @if (!candidate.IsValid)
+                                                {
+                                                    <span class="text-muted small">(invalid — skipped)</span>
+                                                }
+                                            </label>
+                                            @if (!string.IsNullOrWhiteSpace(candidate.Description))
+                                            {
+                                                <p class="text-muted small suggestion-summary">@candidate.Description</p>
+                                            }
+                                            @if (!candidate.IsValid)
+                                            {
+                                                <p class="text-muted small suggestion-summary status-error-text">@candidate.ValidationError</p>
+                                            }
+                                            else if (candidate.PreviewLabels.Count > 0)
+                                            {
+                                                <p class="text-muted small suggestion-summary">
+                                                    Preview: @string.Join(", ", candidate.PreviewLabels.Zip(candidate.PreviewValues, (l, v) => $"{l}={v}").Take(5))
+                                                </p>
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+
+                        </div>
+                    </div>
+                }
+
+                </div>
+
+                <div class="row">
+                    <div class="col-12 text-center">
+                    <button class="btn btn-lg btn-primary" @onclick="GenerateAsync"
+                            disabled="@(_busy || (_State.SelectedTableKeys.Count == 0 && _State.SelectedProcedureKeys.Count == 0))">
+                        Generate (@_State.SelectedTableKeys.Count table@(_State.SelectedTableKeys.Count == 1 ? "" : "s"),
+                        @_State.SelectedProcedureKeys.Count proc@(_State.SelectedProcedureKeys.Count == 1 ? "" : "s"))
+                    </button>
+                    </div>
+                </div>
+        </div>
+    </div>
+</div>
+
+
+@code {
+    private bool _busy;
+    private bool _generateCrudServices;
+    private bool _generateApiEndpoints;
+    private bool _generateHttpClientServices;
+    private bool _generateBlazorPages;
+    private PageStyle _pageStyle = PageStyle.Plain;
+    private bool _generateProjectScaffold;
+    bool manualVisible=false;
+    private bool _insightsBusy;
+    private string? _insightsStatusMessage;
+    private bool _insightsStatusIsError;
+    private GeneratedFile? _selectedFile;
+    private void OnGenerateCrudServicesChanged()
+    {
+        if (!_generateCrudServices)
+        {
+            _generateApiEndpoints = false;
+            _generateHttpClientServices = false;
+            _generateBlazorPages = false;
+            _pageStyle = PageStyle.Plain;
+        }
+    }
+
+    private void OnGenerateApiEndpointsChanged()
+    {
+        if (!_generateApiEndpoints)
+        {
+            _generateHttpClientServices = false;
+        }
+    }
+
+    private void OnGenerateBlazorPagesChanged()
+    {
+        if (!_generateBlazorPages)
+        {
+            _pageStyle = PageStyle.Plain;
+        }
+    }
+
+    private async Task SuggestDashboardInsightsAsync()
+    {
+        if (_State.Schema is null || _State.SelectedTableKeys.Count == 0) return;
+
+        _insightsBusy = true;
+        _insightsStatusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Scope the prompt to just the selected tables (and FKs between them) - smaller prompt,
+            // and keeps suggestions relevant to what's actually being generated.
+            var selectedTables = _State.Schema.Tables.Where(t => _State.SelectedTableKeys.Contains(t.FullyQualifiedName)).ToList();
+            var scopedSchema = new DatabaseSchema
+            {
+                DatabaseName = _State.Schema.DatabaseName,
+                Tables = selectedTables,
+                ForeignKeys = _State.Schema.ForeignKeys
+                    .Where(fk => _State.SelectedTableKeys.Contains($"{fk.ParentSchema}.{fk.ParentTable}")
+                              && _State.SelectedTableKeys.Contains($"{fk.ReferencedSchema}.{fk.ReferencedTable}"))
+                    .ToList()
+            };
+
+            var prompt = DashboardInsightsAssistant.BuildPrompt(scopedSchema, _State.Procedures, maxInsights: 4);
+            var json = await Ollama.GenerateJsonAsync(_State.OllamaEndpoint.Trim(), _State.OllamaModel.Trim(), prompt);
+            var candidates = DashboardInsightsAssistant.TryParse(json);
+
+            if (candidates.Count == 0)
+            {
+                _insightsStatusMessage = "No insights suggested (or the response couldn't be parsed) - try again, or the schema may not have chart-worthy data.";
+                _insightsStatusIsError = true;
+            }
+            else
+            {
+                foreach (var candidate in candidates)
+                {
+                    var result = await SchemaReader.ExecuteReadOnlyQueryAsync(_State.Conn.ConnectionString, candidate.Sql, maxRows: 20);
+
+                    if (!result.Success)
+                    {
+                        candidate.IsValid = false;
+                        candidate.ValidationError = result.Error;
+                    }
+                    else if (result.Columns.Count != 2)
+                    {
+                        candidate.IsValid = false;
+                        candidate.ValidationError = $"Expected exactly 2 columns (label, value), got {result.Columns.Count}.";
+                    }
+                    else
+                    {
+                        candidate.IsValid = true;
+                        candidate.PreviewLabels = result.Rows.Select(r => r.Count > 0 ? r[0] ?? "" : "").ToList();
+                        candidate.PreviewValues = result.Rows.Select(r => r.Count > 1 && double.TryParse(r[1], out var v) ? v : 0).ToList();
+                    }
+                }
+
+                _State.DashboardInsights = candidates;
+                _State.AcceptedInsightTitles.Clear();
+                _State.NotifyStateChanged();
+                await InvokeAsync(StateHasChanged);
+
+                // Pre-select the validated ones - they've already been test-run and previewed, unlike
+                // the implicit-relationship heuristic candidates elsewhere, which start unchecked.
+                foreach (var c in candidates.Where(c => c.IsValid))
+                {
+                    _State.AcceptedInsightTitles.Add(c.Title);
+                }
+
+                var validCount = candidates.Count(c => c.IsValid);
+                _insightsStatusMessage = validCount == candidates.Count
+                    ? $"Got {candidates.Count} suggestion(s), all validated and pre-selected."
+                    : $"Got {candidates.Count} suggestion(s), {validCount} validated and pre-selected (the rest failed validation - see details below).";
+                _insightsStatusIsError = validCount == 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            _insightsStatusMessage = ex.Message;
+            _insightsStatusIsError = true;
+        }
+        finally
+        {
+            _insightsBusy = false;
+        }
+    }
+    private void ToggleInsightAccepted(string title, bool accepted)
+    {
+        if (accepted) _State.AcceptedInsightTitles.Add(title);
+        else _State.AcceptedInsightTitles.Remove(title);
+        _State.NotifyStateChanged();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task GenerateAsync()
+    {
+        if (_State.Schema is null) return;
+        if (_State.SelectedTableKeys.Count == 0 && _State.SelectedProcedureKeys.Count == 0) return;
+
+        _busy = true;
+        //SetStatus(null, false);
+        StateHasChanged();
+
+        var ns = string.IsNullOrWhiteSpace(_State.RootNamespace) ? "MyApp.Data" : _State.RootNamespace.Trim();
+        var ctxName = string.IsNullOrWhiteSpace(_State.DbContextName) ? "AppDbContext" : _State.DbContextName.Trim();
+
+        var files = new List<GeneratedFile>();
+        var warnings = new List<string>();
+        var effectiveSchema = BuildEffectiveSchema();
+
+        if (_State.SelectedTableKeys.Count > 0)
+        {
+            files.AddRange(_SchemaCode.Generate(effectiveSchema, _State.SelectedTableKeys, ns, ctxName));
+
+            if (_generateCrudServices)
+            {
+                files.AddRange(_CrudGenerator.GenerateCrudServices(
+                    effectiveSchema, _State.SelectedTableKeys, ns,
+                    _generateApiEndpoints, _generateHttpClientServices, _generateBlazorPages, _pageStyle));
+
+                var skippedNoKey = _State.Schema.Tables
+                    .Where(t => _State.SelectedTableKeys.Contains(t.FullyQualifiedName) && !t.IsView && t.PrimaryKeyColumns.Count == 0)
+                    .Select(t => t.TableName)
+                    .ToList();
+                if (skippedNoKey.Count > 0)
+                {
+                    warnings.Add($"No CRUD service generated for table(s) without a primary key: {string.Join(", ", skippedNoKey)}.");
+                }
+            }
+
+            if (_generateProjectScaffold)
+            {
+                var appName = string.IsNullOrWhiteSpace(_State.ApplicationName) ? "GeneratedApp" : _State.ApplicationName.Trim();
+                var acceptedInsights = _State.DashboardInsights
+                    .Where(i => _State.AcceptedInsightTitles.Contains(i.Title))
+                    .ToList();
+                files.AddRange(_ProjectGenerator.GenerateProjectScaffold(
+                    effectiveSchema, _State.SelectedTableKeys, ns, appName, ctxName, _State.Conn.ConnectionString,
+                    _generateApiEndpoints, _generateCrudServices, _generateBlazorPages, _pageStyle, acceptedInsights));
+            }
+        }
+
+        if (_State.SelectedProcedureKeys.Count > 0)
+        {
+            var details = new List<StoredProcedureDetail>();
+
+            foreach (var key in _State.SelectedProcedureKeys)
+            {
+                var summary = _State.Procedures.FirstOrDefault(p => p.FullyQualifiedName.Equals(key, StringComparison.OrdinalIgnoreCase));
+                if (summary is null) continue;
+
+                try
+                {
+                    var detail = await SchemaReader.ReadProcedureDetailAsync(_State.Conn.ConnectionString, summary.Schema, summary.Name);
+                    details.Add(detail);
+
+                    if (!detail.CanDescribeResultSet)
+                    {
+                        warnings.Add($"{detail.FullyQualifiedName}: result set couldn't be auto-described — generated a parameters-only executor.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add($"{summary.FullyQualifiedName}: skipped — {ex.Message}");
+                }
+            }
+
+            if (details.Count > 0)
+            {
+                files.AddRange(_ProcedureGenerator.GenerateForProcedures(details, ns));
+            }
+        }
+
+        _State.GeneratedFiles = files;
+        _selectedFile = _State.GeneratedFiles.FirstOrDefault();
+        _State.NotifyStateChanged();
+        await InvokeAsync(StateHasChanged);
+        _busy = false;
+
+        var summaryMessage = $"Generated {files.Count} file(s).";
+        if (warnings.Count > 0)
+            summaryMessage += " " + string.Join(" ", warnings);
+
+        try
+        {
+            if (files.Any())
+                await _JSRuntime.ShowGenerateResultTab();
+        }
+        catch { }   
+        // SetStatus(summaryMessage, false);
+    }
+
+    private DatabaseSchema BuildEffectiveSchema()
+    {
+        if (_State.Schema is null)
+            throw new InvalidOperationException("Schema not loaded.");
+
+        if (_State.AcceptedImplicitFkKeys.Count == 0)
+            return _State.Schema;
+
+        var synthetic = _State.ImplicitFkCandidates
+            .Where(c => _State.AcceptedImplicitFkKeys.Contains(c.Key))
+            .Select(c => new ForeignKeyInfo
+            {
+                ConstraintName = $"FK_{c.ParentTable}_{c.ParentColumn}_Inferred",
+                ParentSchema = c.ParentSchema,
+                ParentTable = c.ParentTable,
+                ParentColumn = c.ParentColumn,
+                ReferencedSchema = c.ReferencedSchema,
+                ReferencedTable = c.ReferencedTable,
+                ReferencedColumn = c.ReferencedColumn,
+                IsParentColumnNullable = IsColumnNullable(c.ParentSchema, c.ParentTable, c.ParentColumn),
+                DeleteAction = "NO_ACTION"
+            })
+            .ToList();
+
+        return new DatabaseSchema
+        {
+            DatabaseName = _State.Schema.DatabaseName,
+            Tables = _State.Schema.Tables,
+            ForeignKeys = [.. _State.Schema.ForeignKeys, .. synthetic]
+        };
+    }
+
+    private bool IsColumnNullable(string schema, string table, string column)
+    {
+        var col = _State.Schema?.Tables
+            .FirstOrDefault(t => t.Schema == schema && t.TableName == table)?.Columns
+            .FirstOrDefault(c => c.ColumnName == column);
+        return col?.IsNullable ?? true;
+    }
+}

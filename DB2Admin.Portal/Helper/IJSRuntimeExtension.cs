@@ -21,5 +21,10 @@ namespace SQLAZOR.Portal.Helper
         {
             return await jsRuntime.InvokeAsync<bool>("CheckThemeMode");
         }
+
+        public static async Task ShowGenerateResultTab(this IJSRuntime jsRuntime)
+        {
+            await jsRuntime.InvokeVoidAsync("ShowGenerateResultTab");
+        }
     }
 }

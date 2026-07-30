@@ -1,0 +1,58 @@
+﻿@using static SQLAZOR.Services.GenerationState
+@inject ISchemaReaderService SchemaReader
+@inject GenerationState _State
+@if (GeneratedFiles.Count > 0)
+{
+
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-primary mb-0">Result Preview </h5>
+                    <button class="btn btn" @onclick="DownloadZipAsync">Download all as .zip</button>
+                </div>
+                <div class="row">
+                    <div class="col-4">
+                        <ul class="list-group slim-scroll" style="height:500px; overflow-y:auto; ">
+                            <li class="list-group-item file-list">
+                                @foreach (var file in GeneratedFiles)
+                                {
+                                    <div class="file-item text-primary @(file == _selectedFile ? "active" : "")"
+                                    @onclick="() => _selectedFile = file">
+                                        @file.RelativePath
+                                    </div>
+                                }
+                            </li>
+                            
+                        </ul>
+                       
+                    </div>
+                    <div class="col-8">
+                        <pre class="code-preview"><code>@(_selectedFile?.Content ?? GeneratedFiles[0].Content)</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+}
+
+
+@code {
+    [Parameter]
+    public List<GeneratedFile> GeneratedFiles { get; set; }
+    [Parameter]
+    public string? AppName { get; set; } = "SQLAZOR";
+
+    private GeneratedFile? _selectedFile;
+
+
+    private async Task DownloadZipAsync()
+    {
+        var bytes = ZipBuilder.BuildZip(GeneratedFiles);
+        var base64 = Convert.ToBase64String(bytes);
+        var fileName = $"{AppName}-Generated.zip";
+        await _JSRuntime.InvokeVoidAsync("DownloadGeneratedFiles.downloadFromBase64", fileName, base64);
+    }
+}

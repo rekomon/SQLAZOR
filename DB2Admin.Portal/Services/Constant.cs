@@ -10,6 +10,14 @@ public static class Constant
    "//   Hand-edit freely — this file is not regenerated automatically.\n" +
    "// </auto-generated>\n\n";
 
+    public const string _TargetFramework_ver = "net10.0";
+    public const string _SqlServer_ver = "10.0.10";
+    public const string _CoreDesign_ver = "10.0.10";
+    public const string _SqlClient_ver = "7.0.2";
+    public const string _Dapper_ver = "2.1.79";
+    public const string _Mapster_ver = "10.0.11";
+    public const string _MudBlazor_ver = "9.7.0";
+
     #region Lower First
     public static string LowerFirst(string s) => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s[1..];
     #endregion
@@ -24,5 +32,24 @@ public static class Constant
    table.Schema.Equals("dbo", StringComparison.OrdinalIgnoreCase)
        ? $"[{table.TableName}]"
        : $"[{table.Schema}].[{table.TableName}]";
+    #endregion
+
+    /// <summary>
+    /// Builds "[Col1] AS [Prop1], [Col2] AS [Prop2], ..." for every column, in ordinal order.
+    /// Always aliases - even when the names currently happen to match - because Dapper's default
+    /// result mapper matches columns to properties by exact name and knows nothing about EF's
+    /// HasColumnName Fluent config; without this, any renamed property (underscore-stripped,
+    /// an applied AI naming suggestion, anything that doesn't match the raw SQL name 1:1) would
+    /// silently come back as its default value instead of the real column's data.
+    /// Pass <paramref name="sourceAlias"/> (e.g. "INSERTED") to prefix each column reference,
+    /// for use in an OUTPUT clause.
+    /// </summary>
+      #region Build Select Column List
+    public static string BuildSelectColumnList(TableInfo table, string? sourceAlias = null)
+    {
+        var prefix = string.IsNullOrEmpty(sourceAlias) ? "" : $"{sourceAlias}.";
+        return string.Join(", ", table.Columns.OrderBy(c => c.OrdinalPosition)
+            .Select(c => $"{prefix}[{c.ColumnName}] AS [{c.PropertyName.TrimStart('@')}]"));
+    }
     #endregion
 }

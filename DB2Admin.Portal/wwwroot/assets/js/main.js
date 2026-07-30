@@ -272,6 +272,72 @@ window.downloadFileFromStream = async (fileName, contentStreamReference) => {
 	URL.revokeObjectURL(url);
 }
 
+
+window.ShowGenerateResultTab = () => {
+
+
+	setActiveTabById("resultsTab-tab");
+	
+}
+
+
+function setActiveTabById(targetTabId) {
+	// 1. Find the tab header buttons inside #myTab
+	const tabContainer = document.getElementById('myTab');
+	if (!tabContainer) return;
+	const tabs = tabContainer.querySelectorAll('.nav-link');
+
+	// 2. Loop through all buttons
+	tabs.forEach(tab => {
+		// Get the target panel selector (e.g., "#schematab")
+		const panelSelector = tab.getAttribute('data-bs-target');
+		const panel = document.querySelector(panelSelector);
+
+		if (tab.id === targetTabId) {
+			// Activate Tab Button
+			tab.classList.add('active');
+			tab.setAttribute('aria-selected', 'true');
+			tab.removeAttribute('tabindex');
+
+			// Activate Content Panel
+			if (panel) {
+				panel.classList.add('active', 'show');
+			}
+		} else {
+			// Deactivate Tab Button
+			tab.classList.remove('active');
+			tab.setAttribute('aria-selected', 'false');
+			tab.setAttribute('tabindex', '-1');
+
+			// Deactivate Content Panel
+			if (panel) {
+				panel.classList.remove('active', 'show');
+			}
+		}
+	});
+}
+
+window.DownloadGeneratedFiles = {
+	downloadFromBase64: function (fileName, base64) {
+		const byteChars = atob(base64);
+		const byteNumbers = new Array(byteChars.length);
+		for (let i = 0; i < byteChars.length; i++) {
+			byteNumbers[i] = byteChars.charCodeAt(i);
+		}
+		const byteArray = new Uint8Array(byteNumbers);
+		const blob = new Blob([byteArray], { type: "application/zip" });
+
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement("a");
+		anchor.href = url;
+		anchor.download = fileName;
+		document.body.appendChild(anchor);
+		anchor.click();
+		document.body.removeChild(anchor);
+		URL.revokeObjectURL(url);
+	}
+};
+
 setTimeout(animateCounters, 400);
 
 

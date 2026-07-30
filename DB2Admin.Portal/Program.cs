@@ -41,7 +41,7 @@ namespace SQLAZOR.Portal
             {
                 client.Timeout = TimeSpan.FromMinutes(5); // local LLM inference can be slow, especially on first load of a model
             });
-
+            
 
 
             var app = builder.Build();

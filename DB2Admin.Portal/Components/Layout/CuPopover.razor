@@ -1,0 +1,48 @@
+﻿@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject HtmlSanitizerService HtmlSanitizer
+
+<span class="d-inline-block" @ref="triggerElement"
+      aria-describedby="@(IsVisible ? popoverId : null)">
+    @ChildContent
+</span>
+
+@if (IsVisible)
+{
+   @*  style = "@GetPopoverStyle()" *@
+    <div @ref="popoverElement"
+         id="@popoverId"
+         class="popover fade @(IsPositioned ? "show" : "") bs-popover-@ActualPlacement @CssClass"
+         role="tooltip">
+        <div class="popover-arrow"></div>
+
+        @if (TitleContent != null || !string.IsNullOrEmpty(Title))
+        {
+            <div class="popover-header">
+                @if (TitleContent != null)
+                {
+                    @TitleContent
+                }
+                else
+                {
+                    @Title
+                }
+            </div>
+        }
+
+        <div class="popover-body">
+            @if (BodyContent != null)
+            {
+                @BodyContent
+            }
+            else if (Html && !string.IsNullOrEmpty(Content))
+            {
+                @((MarkupString)(Sanitize ? HtmlSanitizer.Sanitize(Content) : Content))
+            }
+            else
+            {
+                @Content
+            }
+        </div>
+    </div>
+}

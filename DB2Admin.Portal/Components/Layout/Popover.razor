@@ -1,0 +1,74 @@
+﻿@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
+
+<span class="d-inline-block" @ref="triggerElement">
+    @ChildContent
+</span>
+
+@if (IsVisible)
+{@* style="@GetWrapperStyle()" *@
+   
+        @* style="@GetPopoverStyle()" *@
+    <div class="popover @Class fade bs-popover-@Placement show" role="tooltip">
+            @* style="@GetArrowStyle()" *@
+           @*  <div class="popover-arrow" ></div> *@
+            @if (!string.IsNullOrEmpty(Title))
+            {
+                <h3 class="popover-header">@Title</h3>
+            }
+            <div class="popover-body">@((MarkupString) Content)</div>
+        </div>
+    
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Content { get; set; } = string.Empty;
+    [Parameter] public string Placement { get; set; } = "top"; // top, bottom, left, right
+    [Parameter] public string Trigger { get; set; } = "hover"; // hover, click, focus
+    [Parameter] public int Delay { get; set; } = 100;
+    [Parameter] public bool Html { get; set; } = false;
+    [Parameter] public string? Class { get; set; } = string.Empty;
+    private ElementReference triggerElement;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Popover>? dotNetRef;
+    private bool IsVisible = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Layout/Popover.razor.js");
+            dotNetRef = DotNetObjectReference.Create(this);
+
+            await module.InvokeVoidAsync("initializePopover", triggerElement, dotNetRef, Trigger);
+        }
+    }
+
+    [JSInvokable]
+    public void ShowPopover()
+    {
+        IsVisible = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void HidePopover()
+    {
+        IsVisible = false;
+        StateHasChanged();
+    }
+
+   
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module != null)
+        {
+            await module.InvokeVoidAsync("disposePopover", triggerElement);
+            await module.DisposeAsync();
+        }
+        dotNetRef?.Dispose();
+    }
+}

@@ -62,23 +62,23 @@
                 </li>
 
                 <li class="nav-item" role="presentation">
-                    <MudButton class="nav-link" id="tab6-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
-                            data-bs-target="#tab6" type="button" role="tab">
+                                    <MudButton class="nav-link" id="generateTab-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
+                            data-bs-target="#generateTab" type="button" role="tab">
                         Generate
                     </MudButton>
 
                 </li>
 
                 <li class="nav-item" role="presentation">
-                    <MudButton class="nav-link" id="tab7-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
-                            data-bs-target="#tab7" type="button" role="tab">
+                    <MudButton class="nav-link" id="resultsTab-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
+                            data-bs-target="#resultsTab" type="button" role="tab">
                         Results
                     </MudButton>
 
                 </li>
 
             </ul>
-            <div class="tab-content pt-3">
+            <div id="GeneratorTabs" class="tab-content pt-3">
                   <div class="tab-pane fade active show" id="conntab" role="tabpanel">
                       <DBConnection Conn="_State.Conn" />
                  </div>
@@ -101,9 +101,19 @@
                                     ImplicitFkCandidates="_State.ImplicitFkCandidates" 
                                     AcceptedImplicitFkKeys="_State.AcceptedImplicitFkKeys" />
                                 </div>
+                                <div class="tab-pane fade" id="generateTab" role="tabpanel">
+                                   <GenerateTab/>
+                                </div>
+
+                                <div class="tab-pane fade" id="resultsTab" role="tabpanel">
+                                    <ResultTab GeneratedFiles="@_State.GeneratedFiles" AppName="@_State.ApplicationName" />
+                                </div>
 
             </div>
         </div>
+
+
+                       
 
       
     </div>

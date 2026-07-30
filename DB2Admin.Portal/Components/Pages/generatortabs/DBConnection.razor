@@ -5,7 +5,7 @@
 <span style="color:var(--cu-neon-cyan); font-weight:600;">SQL Server Database connection</span>
 <div class="row">
     <div class="col-4">
-        <div class="form-com"></div>
+        
         <label class="form-label" for="txtserver">Server</label>
         <MudInput T="string" @bind-Value="Conn!.Server" id="txtserver" class="w-100"
                 
@@ -71,6 +71,7 @@
     </div>
 </div>
 
+
 @code{
     [Parameter]
     public Connection Conn { get; set; } = new();
@@ -133,5 +134,7 @@
             }
         }
     }
+
+
 
 }
