@@ -24,7 +24,7 @@ dotnet run
 
 Then open the URL shown in the console (defaults to `http://localhost:5236`).
 
-Requires the ASP.NET Core SDK (net8.0) and a NuGet feed reachable for
+Requires the ASP.NET Core SDK (net10.0) and a NuGet feed reachable for
 `Microsoft.Data.SqlClient` (the only external package this project needs).
 
 [![Youtube Video]()](https://youtu.be/AosK7H4_hTY)
