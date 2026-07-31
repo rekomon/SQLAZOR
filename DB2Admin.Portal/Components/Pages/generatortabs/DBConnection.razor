@@ -56,7 +56,7 @@
             </div>
         </div>
         <div class="align-self-end col-3">
-            <button class="btn btn-outline-secondary" @onclick="@(()=>ConnectionAsync(true))">Connect</button>
+            <button class="btn btn-outline-secondary" @onclick="@(() => ConnectionAsync(true))" disabled="@_busy">Connect</button>
         </div>
     </div>
 
@@ -64,7 +64,7 @@
     <div class="col-12">
     <div class="pill-content">
         <strong>Connection Status </strong> 
-        <ConnStatus Conn="Conn"/>
+                <ConnStatus Conn="Conn" Error="Error" />
        
     </div>
     </div>
@@ -75,7 +75,10 @@
 @code{
     [Parameter]
     public Connection Conn { get; set; } = new();
+    private bool _busy;
     bool Connected = false;
+
+    private string Error { get; set; } =string.Empty;
     private List<string> databases = new List<string>();
     protected override void OnParametersSet()
     {
@@ -90,12 +93,12 @@
 
     private async Task ConnectionAsync(bool loadDatabasesList)
     {
-        
+
         if (string.IsNullOrWhiteSpace(Conn.ConnectionString))
         {
             return;
         }
-
+        _busy = true;
         var (success, error) = await SchemaReader.TestConnectionAsync(Conn.ConnectionString);
         if (success)
         {
@@ -115,8 +118,9 @@
             _State.NotifyStateChanged();
             await InvokeAsync(StateHasChanged);
         }
-       
+        else { Error = error; }
 
+        _busy = false;
     }
 
     private async Task LoadSchemaAsync()
@@ -127,6 +131,14 @@
             {
                 _State.Schema = await SchemaReader.ReadSchemaAsync(_State.Conn.ConnectionString, includeViews: true);
                 _State.Procedures = await SchemaReader.ReadStoredProceduresAsync(_State.Conn.ConnectionString);
+
+                if (_State.Schema is not null)
+                    if (_State.Schema.Tables.Any())
+                    {
+                        var tables = _State.Schema.Tables.Where(t => t.IsView == false).Select(t => t.FullyQualifiedName)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        _State.SelectedTableKeys = tables;
+                    }
             }
             catch (Exception ex)
             {

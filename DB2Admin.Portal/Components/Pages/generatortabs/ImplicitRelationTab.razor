@@ -28,7 +28,7 @@
                 <div class="col-12">
                     @if (_implicitFkChecked && ImplicitFkCandidates.Count == 0)
                     {
-                        <p class="muted small">No naming-convention matches found among the selected tables.</p>
+                        <p class="text-muted small">No naming-convention matches found among the selected tables.</p>
                     }
 
                     @if (ImplicitFkCandidates.Count > 0)
@@ -42,9 +42,10 @@
                                            checked="@AcceptedImplicitFkKeys.Contains(key)"
                                            @onchange="e => ToggleImplicitFk(key, (bool)e.Value!)" />
                                     <span>@($"{candidate.ParentTable}.{candidate.ParentColumn} \u2192 {candidate.ReferencedTable}.{candidate.ReferencedColumn}")</span>
-                                    <span class="badge">@candidate.Confidence</span>
+                                    <span class="badge bg-info">@candidate.Confidence</span>
+
                                
-                                <p class="muted small suggestion-summary">@candidate.Reason</p>
+                                <p class="text-muted small suggestion-summary">@candidate.Reason</p>
                                 </li>
                             }
                         </ul>

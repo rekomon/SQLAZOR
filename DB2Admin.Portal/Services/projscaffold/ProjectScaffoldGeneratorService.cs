@@ -577,18 +577,16 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
                 for (var i = 0; i < insights.Count; i++)
                 {
                     var insight = insights[i];
+                    var mudChartType = insight.ChartType switch
+                    {
+                        InsightChartType.Pie => "ChartType.Pie",
+                        InsightChartType.Line => "ChartType.Line",
+                        _ => "ChartType.Bar"
+                    };
                     sb.AppendLine("    <MudItem xs=\"12\" md=\"6\">");
                     sb.AppendLine("        <MudPaper Class=\"pa-4\">");
                     sb.AppendLine($"            <MudText Typo=\"Typo.subtitle1\" Class=\"mb-2\">{insight.Title}</MudText>");
-                    if (insight.ChartType == InsightChartType.Pie)
-                    {
-                        sb.AppendLine($"            <MudChart ChartType=\"ChartType.Pie\" ChartLabels=\"@_data{i}\" InputLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
-                    }
-                    else
-                    {
-                        var mudType = insight.ChartType == InsightChartType.Line ? "ChartType.Line" : "ChartType.Bar";
-                        sb.AppendLine($"            <MudChart ChartType=\"{mudType}\" ChartSeries=\"@_series{i}\" ChartLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
-                    }
+                    sb.AppendLine($"            <MudChart ChartType=\"{mudChartType}\" ChartSeries=\"@_series{i}\" ChartLabels=\"@_labels{i}\" Width=\"100%\" Height=\"300px\" />");
                     sb.AppendLine("        </MudPaper>");
                     sb.AppendLine("    </MudItem>");
                 }

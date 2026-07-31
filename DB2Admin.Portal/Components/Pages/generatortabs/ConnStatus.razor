@@ -1,31 +1,30 @@
 ﻿@using static SQLAZOR.Services.GenerationState
 
 
-    @if (!string.IsNullOrEmpty(Conn.Server) && !string.IsNullOrEmpty(Conn.userId) && !string.IsNullOrEmpty(Conn.Password))
-    {
-        @if (Connected)
+@if (!string.IsNullOrEmpty(Conn.Server) && !string.IsNullOrEmpty(Conn.userId) && !string.IsNullOrEmpty(Conn.Password))
+{
+    
+        if (Connected)
         {
             <span class="status-badge status-completed"> Connected to @Conn.Database</span>
         }
         else
         {
+        if (string.IsNullOrEmpty(Error))
+        {
             <span class="status-badge status-failed"> Failed to Connected  @Error</span>
-
         }
+        else { <span class="status-badge status-pending"> pending to Connected </span> }
     }
-    else
-    {
-        <span class="status-badge status-pending"> Pending to connect </span>
-
-    }
+    
+}
 
 
 
 @code{
     [Parameter]
     public Connection Conn { get; set; } = new();
-
-     [Parameter]
+    [Parameter]
     public string? Error { get; set; } = string.Empty;
     bool Connected = false;
 

@@ -47,17 +47,17 @@
     }
 
     [JSInvokable]
-    public void ShowPopover()
+    public async Task ShowPopover()
     {
         IsVisible = true;
-        StateHasChanged();
+       await InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]
-    public void HidePopover()
+    public async Task HidePopover()
     {
         IsVisible = false;
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
     }
 
    

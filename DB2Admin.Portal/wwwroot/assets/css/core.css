@@ -301,7 +301,7 @@ body {
 }
 
 .chat-window {
-    min-height: 500px;
+    min-height: 250px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;

@@ -190,7 +190,7 @@ namespace SQLAZOR.Services
                     var referencedClass = tableByKey[$"{fk.ReferencedSchema}.{fk.ReferencedTable}"].ClassName;
                     var navName = childNav[fk];
                     var nullableMark = fk.IsParentColumnNullable ? "?" : "";
-                    sb.AppendLine($"    public virtual {referencedClass}{nullableMark} {navName} {{ get; set; }}" +
+                    sb.AppendLine($"    public virtual {referencedClass}{nullableMark} {navName}_{referencedClass} {{ get; set; }}" +
                                    (fk.IsParentColumnNullable ? "" : " = default!;"));
                 }
             }
@@ -287,7 +287,7 @@ namespace SQLAZOR.Services
                         _ => "DeleteBehavior.NoAction"
                     };
 
-                    sb.AppendLine($"        builder.HasOne(e => e.{navName})");
+                    sb.AppendLine($"        builder.HasOne(e => e.{navName}_{referencedClass})");
                     sb.AppendLine($"            .WithMany(e => e.{inverseName})");
                     sb.AppendLine($"            .HasForeignKey(e => e.{fkColProp})");
                     sb.AppendLine($"            .HasConstraintName(\"{fk.ConstraintName}\")");

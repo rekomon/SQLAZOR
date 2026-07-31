@@ -275,46 +275,47 @@ window.downloadFileFromStream = async (fileName, contentStreamReference) => {
 
 window.ShowGenerateResultTab = () => {
 
-
+	
 	setActiveTabById("resultsTab-tab");
 	
 }
 
 
 function setActiveTabById(targetTabId) {
-	// 1. Find the tab header buttons inside #myTab
-	const tabContainer = document.getElementById('myTab');
-	if (!tabContainer) return;
-	const tabs = tabContainer.querySelectorAll('.nav-link');
+	try {
+		const tabContainer = document.getElementById('myTab');
+		if (!tabContainer) return;
+		const tabs = tabContainer.querySelectorAll('.nav-link');
 
-	// 2. Loop through all buttons
-	tabs.forEach(tab => {
-		// Get the target panel selector (e.g., "#schematab")
-		const panelSelector = tab.getAttribute('data-bs-target');
-		const panel = document.querySelector(panelSelector);
+		// 2. Loop through all buttons
+		tabs.forEach(tab => {
+			// Get the target panel selector (e.g., "#schematab")
+			const panelSelector = tab.getAttribute('data-bs-target');
+			const panel = document.querySelector(panelSelector);
 
-		if (tab.id === targetTabId) {
-			// Activate Tab Button
-			tab.classList.add('active');
-			tab.setAttribute('aria-selected', 'true');
-			tab.removeAttribute('tabindex');
+			if (tab.id === targetTabId) {
+				// Activate Tab Button
+				tab.classList.add('active');
+				tab.setAttribute('aria-selected', 'true');
+				tab.removeAttribute('tabindex');
 
-			// Activate Content Panel
-			if (panel) {
-				panel.classList.add('active', 'show');
+				// Activate Content Panel
+				if (panel) {
+					panel.classList.add('active', 'show');
+				}
+			} else {
+				// Deactivate Tab Button
+				tab.classList.remove('active');
+				tab.setAttribute('aria-selected', 'false');
+				tab.setAttribute('tabindex', '-1');
+
+				// Deactivate Content Panel
+				if (panel) {
+					panel.classList.remove('active', 'show');
+				}
 			}
-		} else {
-			// Deactivate Tab Button
-			tab.classList.remove('active');
-			tab.setAttribute('aria-selected', 'false');
-			tab.setAttribute('tabindex', '-1');
-
-			// Deactivate Content Panel
-			if (panel) {
-				panel.classList.remove('active', 'show');
-			}
-		}
-	});
+		});
+	} catch { }
 }
 
 window.DownloadGeneratedFiles = {
