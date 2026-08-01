@@ -128,6 +128,7 @@
 
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _runningQueryKeys = new(StringComparer.Ordinal);
+    
     private static readonly List<(string Id, string Name)> ollamaModels = new()
     {
         ("gpt-oss:120b-cloud", "Chat GPT"),
@@ -136,23 +137,6 @@
         ("gemma4:31b-cloud", "Google Gemma 4"),
 
     };
-
-    // protected override void OnInitialized()
-    // {
-    //     if(_State is not null)
-    //     {
-    //         Console.WriteLine($"AISchemaAssistant initialized. OllamaEndpoint: {_State.OllamaEndpoint}, OllamaModel: {_State.OllamaModel}");
-    //         Console.WriteLine($"State ConnectionString: {_State.Conn.ConnectionString}");
-    //     }
-    // }
-    // protected override async Task OnAfterRenderAsync(bool firstRender)
-    // {
-    //     if (_State is not null)
-    //     {
-    //         Console.WriteLine($"AISchemaAssistant initialized. OllamaEndpoint: {_State.OllamaEndpoint}, OllamaModel: {_State.OllamaModel}");
-    //         Console.WriteLine($"State ConnectionString: {_State.Conn.ConnectionString}");
-    //     }
-    // }
 
     private async Task TestOllamaConnectionAsync()
     {
@@ -181,89 +165,91 @@
         }
     }
 
+    // private async Task SendChatAsync()
+    // {
+    //     if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
+
+    //     var question = _chatInput.Trim();
+    //     _chatInput = string.Empty;
+    //     _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
+
+    //     _chatBusy = true;
+    //     StateHasChanged();
+
+    //     try
+    //     {
+    //         var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
+    //         var reply = await Ollama.ChatAsync(
+    //             _State.OllamaEndpoint.Trim(),
+    //             _State.OllamaModel.Trim(),
+    //             schemaContext,
+    //             _State.ChatHistory);
+
+    //         _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = reply });
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = ex.Message, IsError = true });
+    //     }
+    //     finally
+    //     {
+    //         _chatBusy = false;
+    //     }
+    // }
+
     private async Task SendChatAsync()
     {
-        if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
-
-        var question = _chatInput.Trim();
-        _chatInput = string.Empty;
-        _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
-
-        _chatBusy = true;
-        StateHasChanged();
-
+        ChatMessage? assistantMessage = null;
         try
         {
+            if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
+
+            var question = _chatInput.Trim();
+            _chatInput = string.Empty;
+            _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
+
+            var requestHistory = _State.ChatHistory.ToList();
+
+            assistantMessage = new ChatMessage { Role = "assistant", Content = string.Empty };
+            _State.ChatHistory.Add(assistantMessage);
+
+            _chatBusy = true;
+            StateHasChanged();
+
             var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
-            var reply = await Ollama.ChatAsync(
+
+            await foreach (var chunk in Ollama.ChatStreamAsync(
                 _State.OllamaEndpoint.Trim(),
                 _State.OllamaModel.Trim(),
                 schemaContext,
-                _State.ChatHistory);
+                requestHistory))
+            {
+                if (assistantMessage is not null)
+                {
+                    assistantMessage.Content = (assistantMessage.Content ?? string.Empty) + chunk;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
 
-            _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = reply });
+            if (assistantMessage is not null && assistantMessage.Content.Length == 0)
+            {
+                assistantMessage.Content = "(empty response)";
+            }
         }
         catch (Exception ex)
         {
-            _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = ex.Message, IsError = true });
+            if (assistantMessage is not null)
+            {
+                assistantMessage.IsError = true;
+                assistantMessage.Content = string.IsNullOrEmpty(assistantMessage.Content)
+                    ? ex.Message
+                    : assistantMessage.Content + $"\n\n[Error: {ex.Message}]";
+            }
         }
         finally
         {
             _chatBusy = false;
         }
-    }
-
-    private async Task StartStreaming()
-    {
-        if (IsStreaming)
-        {
-            // Cancel ongoing stream
-            _cts?.Cancel();
-            IsStreaming = false;
-            StateHasChanged();
-            return;
-        }
-
-        FullResponse = "";
-        IsStreaming = true;
-        StateHasChanged();
-        try
-        {
-            _cts = new CancellationTokenSource();
-            var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
-            await foreach (var chunk in Ollama.StreamChatAsync(
-                            _State.OllamaEndpoint.Trim(),
-                _State.OllamaModel.Trim(),
-                schemaContext,
-                _State.ChatHistory,
-                            _cts.Token))
-            {
-                if (_cts.IsCancellationRequested)
-                    break;
-
-                FullResponse += chunk;
-                _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = FullResponse });
-                await InvokeAsync(StateHasChanged); // Trigger UI update
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Handle cancellation gracefully
-        }
-        catch (Exception ex)
-        {
-            // In production: Use ILogger and show user-friendly error
-            Console.WriteLine($"Streaming error: {ex.Message}");
-            FullResponse = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            IsStreaming = false;
-            _cts?.Dispose();
-            _cts = null;
-            await InvokeAsync(StateHasChanged);
-        }
-
     }
 
     private void ClearChat() => _State.ChatHistory.Clear();

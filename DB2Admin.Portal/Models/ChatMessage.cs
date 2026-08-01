@@ -2,7 +2,8 @@ namespace SQLAZOR.Models;
 
 public sealed class ChatMessage
 {
-    public required string Role { get; init; }   // "user" or "assistant"
-    public required string Content { get; init; }
-    public bool IsError { get; init; }
+    // Make properties mutable so callers can append streaming text and set error flags
+    public string Role { get; set; } = string.Empty;   // "user" or "assistant"
+    public string Content { get; set; } = string.Empty;
+    public bool IsError { get; set; } = false;
 }

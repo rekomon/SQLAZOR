@@ -1,5 +1,6 @@
 using SQLAZOR.Models;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
@@ -24,6 +25,17 @@ public sealed class OllamaService : IOllamaService
         _http = http;
     }
 
+    private static List<object> BuildChatMessages(string schemaContext, IReadOnlyList<ChatMessage> history)
+    {
+        var messages = new List<object>
+        {
+            new { role = "system", content = string.Format(SystemPromptTemplate, schemaContext) }
+        };
+        messages.AddRange(history.Select(m => (object)new { role = m.Role, content = m.Content }));
+        return messages;
+    }
+
+    #region Chat Async
     public async Task<string> ChatAsync(
         string endpoint,
         string model,
@@ -32,14 +44,7 @@ public sealed class OllamaService : IOllamaService
         CancellationToken ct = default)
     {
         var url = BuildUrl(endpoint, "/api/chat");
-
-        var messages = new List<object>
-        {
-            new { role = "system", content = string.Format(SystemPromptTemplate, schemaContext) }
-        };
-        messages.AddRange(history.Select(m => (object)new { role = m.Role, content = m.Content }));
-
-        var payload = new { model, messages, stream = false };
+        var payload = new { model, messages = BuildChatMessages(schemaContext, history), stream = false };
         var json = JsonSerializer.Serialize(payload);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -80,92 +85,118 @@ public sealed class OllamaService : IOllamaService
         throw new InvalidOperationException("Ollama returned an unexpected response shape.");
     }
 
-    public async IAsyncEnumerable<string> StreamChatAsync(string endpoint, string model,
-        string prompt,
+    #endregion
+
+
+    #region Chat Stream Async
+
+    public async IAsyncEnumerable<string> ChatStreamAsync(
+        string endpoint,
+        string model,
+        string schemaContext,
         IReadOnlyList<ChatMessage> history,
-        CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken ct = default)
     {
         var url = BuildUrl(endpoint, "/api/chat");
+        var payload = new { model, messages = BuildChatMessages(schemaContext, history), stream = true };
+        var json = JsonSerializer.Serialize(payload);
 
-        
-        var messages = new List<object>
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            new { role = "system", content = string.Format(SystemPromptTemplate, prompt) }
-        };
-        messages.AddRange(history.Select(m => (object)new { role = m.Role, content = m.Content }));
-
-        var payload = new { model, messages,
-            format = "json",
-            stream = true,
-            options = new { temperature = 0.2 }
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
 
-        var jsonPayload = JsonSerializer.Serialize(payload);
-        using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-
-        using var response = await _http.PostAsync(
-            url,
-            content,
-            cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
-
-        string line;
-        while ((line = await reader.ReadLineAsync(cancellationToken)) != null && !cancellationToken.IsCancellationRequested)
+        HttpResponseMessage response;
+        try
         {
+            // Read headers as soon as they arrive rather than buffering the whole (chunked, unbounded)
+            // response body - that's what actually lets us start yielding text before Ollama is done.
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not reach Ollama at {endpoint}. Is it running? ({ex.Message})", ex);
+        }
 
-            Console.WriteLine(line);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            var errorText = TryExtractError(errorBody) ?? errorBody;
+            throw new InvalidOperationException($"Ollama returned {(int)response.StatusCode}: {errorText}");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        var sawAnyContent = false;
+
+        while (!reader.EndOfStream)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var line = await reader.ReadLineAsync(ct);
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            // Some streaming endpoints prefix lines with "data: "
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("data: ", StringComparison.OrdinalIgnoreCase))
-                trimmed = trimmed.Substring(6).Trim();
+            // Ollama streams one NDJSON object per line - {"message":{"content":"chunk"},"done":false}
+            // repeated, then a final {"done":true,...} with aggregate stats. A malformed line (rare,
+            // e.g. a truncated chunk from a dropped connection) is skipped rather than aborting the
+            // whole reply - better a slightly short answer than losing everything already streamed.
+            string? chunk = null;
+            var isDone = false;
+            string? streamError = null;
 
-            if (string.Equals(trimmed, "[DONE]", StringComparison.OrdinalIgnoreCase))
+            try
+            {
+                using var lineDoc = JsonDocument.Parse(line);
+                if (lineDoc.RootElement.TryGetProperty("error", out var errorEl))
+                {
+                    streamError = errorEl.GetString();
+                }
+                else
+                {
+                    if (lineDoc.RootElement.TryGetProperty("message", out var messageEl) &&
+                        messageEl.TryGetProperty("content", out var contentEl))
+                    {
+                        chunk = contentEl.GetString();
+                    }
+
+                    if (lineDoc.RootElement.TryGetProperty("done", out var doneEl) && doneEl.ValueKind == JsonValueKind.True)
+                    {
+                        isDone = true;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (streamError is not null)
+            {
+                throw new InvalidOperationException($"Ollama error: {streamError}");
+            }
+
+            if (!string.IsNullOrEmpty(chunk))
+            {
+                sawAnyContent = true;
+                yield return chunk;
+            }
+
+            if (isDone)
+            {
                 yield break;
+            }
+        }
 
-            
-                using var jsonDoc = JsonDocument.Parse(trimmed);
-                var root = jsonDoc.RootElement;
-
-                // Look for common response properties
-                if (root.TryGetProperty("response", out var responseProp) &&
-                    responseProp.ValueKind == JsonValueKind.String &&
-                    !string.IsNullOrEmpty(responseProp.GetString()))
-                {
-                Console.WriteLine(responseProp.GetString()!);
-                yield return responseProp.GetString()!;
-                    continue;
-                }
-
-                if (root.TryGetProperty("content", out var contentProp) &&
-                    contentProp.ValueKind == JsonValueKind.String &&
-                    !string.IsNullOrEmpty(contentProp.GetString()))
-                {
-                Console.WriteLine(contentProp.GetString()!);
-                yield return contentProp.GetString()!;
-                    continue;
-                }
-
-                // Fallback: if root itself is a string
-                if (root.ValueKind == JsonValueKind.String)
-                {
-                    var s = root.GetString();
-                if (!string.IsNullOrEmpty(s))
-                {
-                    Console.WriteLine(s);
-                    yield return s;
-                }
-                }
-            
+        if (!sawAnyContent)
+        {
+            throw new InvalidOperationException("Ollama returned an empty streamed response.");
         }
     }
 
-
+    #endregion
     public async Task<string> GenerateJsonAsync(string endpoint, string model, string prompt,
         CancellationToken ct = default)
     {

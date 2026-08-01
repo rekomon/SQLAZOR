@@ -15,12 +15,12 @@ public interface IOllamaService
         IReadOnlyList<ChatMessage> history,
         CancellationToken ct = default);
 
-    IAsyncEnumerable<string> StreamChatAsync(
+    IAsyncEnumerable<string> ChatStreamAsync(
          string endpoint,
-        string model,
-        string prompt,
-        IReadOnlyList<ChatMessage> history,
-        CancellationToken cancellationToken = default);
+         string model,
+         string schemaContext,
+         IReadOnlyList<ChatMessage> history,
+         CancellationToken ct = default);
 
     /// <summary>Quick reachability + model-availability check, used for a "Test connection" button.</summary>
     Task<(bool Success, string? Error)> TestConnectionAsync(string endpoint, string model, CancellationToken ct = default);
