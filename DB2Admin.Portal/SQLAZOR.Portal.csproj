@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,19 +7,6 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Remove="Components\Layout\CuPopover.razor.cs" />
-    <Compile Remove="Services\HtmlSanitizerService.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Remove="Components\Layout\CuPopover.razor" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="Components\Layout\CuPopover.razor.css" />
-    <None Remove="Components\Layout\CuPopover.razor.js" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />

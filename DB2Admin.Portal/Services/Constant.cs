@@ -34,17 +34,20 @@ public static class Constant
        : $"[{table.Schema}].[{table.TableName}]";
     #endregion
 
-    /// <summary>
-    /// Builds "[Col1] AS [Prop1], [Col2] AS [Prop2], ..." for every column, in ordinal order.
-    /// Always aliases - even when the names currently happen to match - because Dapper's default
-    /// result mapper matches columns to properties by exact name and knows nothing about EF's
-    /// HasColumnName Fluent config; without this, any renamed property (underscore-stripped,
-    /// an applied AI naming suggestion, anything that doesn't match the raw SQL name 1:1) would
-    /// silently come back as its default value instead of the real column's data.
-    /// Pass <paramref name="sourceAlias"/> (e.g. "INSERTED") to prefix each column reference,
-    /// for use in an OUTPUT clause.
-    /// </summary>
-      #region Build Select Column List
+
+    public static string BuildPkPathSegment(TableInfo table) =>
+           string.Join("/", GetPkArgs(table).Select(a => "{" + a.ArgName + "}"));
+
+    public static List<(string ArgName, ColumnInfo Column)> GetPkArgs(TableInfo table)
+    {
+        var pkCols = table.Columns.Where(c => c.IsPrimaryKey).OrderBy(c => c.OrdinalPosition).ToList();
+        if (pkCols.Count == 1)
+            return [("id", pkCols[0])];
+
+        return pkCols.Select(c => (Constant.LowerFirst(c.PropertyName), c)).ToList();
+    }
+
+    #region Build Select Column List
     public static string BuildSelectColumnList(TableInfo table, string? sourceAlias = null)
     {
         var prefix = string.IsNullOrEmpty(sourceAlias) ? "" : $"{sourceAlias}.";
@@ -52,4 +55,6 @@ public static class Constant
             .Select(c => $"{prefix}[{c.ColumnName}] AS [{c.PropertyName.TrimStart('@')}]"));
     }
     #endregion
+
+    public static string HtmlEncode(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
 }
