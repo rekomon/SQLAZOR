@@ -1,4 +1,4 @@
-# SQLAZOR
+﻿# SQLAZOR
 
 A small Blazor Server app that reverse-engineers a SQL Server database into
 clean, hand-written-looking EF Core code:
@@ -26,9 +26,6 @@ Then open the URL shown in the console (defaults to `http://localhost:5236`).
 
 Requires the ASP.NET Core SDK (net10.0) and a NuGet feed reachable for
 `Microsoft.Data.SqlClient` (the only external package this project needs).
-
-
-[![Watch the demo](https://i9.ytimg.com/vi/AosK7H4_hTY/mqdefault.jpg?v=6a6c891f&sqp=CPClstMG&rs=AOn4CLDf2_q_nRnQZI56l3bsbcBatq9qOw)](https://youtu.be/AosK7H4_hTY)
 
 ## Using it
 
@@ -81,7 +78,14 @@ things like:
 - "write a LINQ query for the top 10 customers by total order value"
 - Arabic works too — the assistant is told to reply in whatever language you write in.
 
-How it works: every message is sent to `POST {endpoint}/api/chat` with a
+Replies **stream in token-by-token** — the request goes to `POST {endpoint}/api/chat` with
+`"stream": true`, read as newline-delimited JSON off the live HTTP response (headers-first, not
+buffered) rather than waiting for the full reply. The assistant's message bubble fills in live as
+text arrives, with a brief "thinking…" placeholder before the first chunk lands. If the connection
+drops or a line comes back malformed partway through, whatever text already streamed in is kept
+(flagged as an error with the reason appended) rather than discarding a mostly-good answer.
+
+How it works: every message is sent with a
 system prompt built from `SchemaContextBuilder` — a compact text rendering of
 every table, its columns (name, SQL type, nullability), PK/FK markers, and
 the stored procedure list. The model never touches your actual data, only
@@ -161,10 +165,10 @@ a primary key), it adds a dedicated folder:
 
 ```
 Pages/
-  Patient/
-    PatientList.razor    -- @page "/patients"
-    PatientCreate.razor  -- @page "/patients/create"
-    PatientEdit.razor    -- @page "/patients/edit/{Id:int}"  (or /{OrderId}/{LineNumber} etc. for a composite key)
+  Products/
+    ProductList.razor    -- @page "/products"
+    ProductCreate.razor  -- @page "/products/create"
+    ProductEdit.razor    -- @page "/products/edit/{Id:int}"  (or /{OrderId}/{LineNumber} etc. for a composite key)
 ```
 
 - **`{Table}List.razor`** — grid of every row (`GetAllAsync()`), an Edit link per row, and a
@@ -267,10 +271,93 @@ Only what you leave checked gets baked in. Accepted insights produce:
   the AI actually named its result columns.
 - **Dashboard stat cards** — one per table, showing the live row count.
 - **Dashboard charts** — one per accepted insight, rendered per page style:
-  - **MudBlazor**: native `<MudChart Type="ChartType.Bar/Pie/Line">` — no JS involved.
+  - **MudBlazor**: native `<MudChart ChartType="ChartType.Bar/Pie/Line" ChartSeries="..." ChartLabels="..." />`
+    — no JS involved. MudBlazor 9's chart rework unified Pie onto the same `ChartSeries<double>` +
+    `ChartLabels` model as Bar/Line (the old separate `InputData`/`InputLabels` for Pie is gone), so
+    all three chart types share one code path here.
   - **Tabler / Plain**: a `<div id="chart-N">` placeholder filled via a small JS interop call
     (`wwwroot/js/charts.js`, generated only when needed) wrapping
     [ApexCharts](https://apexcharts.com) (loaded from CDN, only when there's at least one chart).
+
+## Clean Architecture (4-project solution, optional)
+
+Once "Also generate a full runnable project" is checked, a second checkbox appears: **"Use Clean
+Architecture"**. Off (default), everything lands in one project exactly as described above. On,
+the scaffold generates four projects instead of one, tied together by `{App}.sln`, with the
+dependency direction enforced by real `<ProjectReference>`s rather than just convention:
+
+```
+{App}.sln
+{App}.Domain/            -- entities only. Zero dependencies on anything else.
+{App}.Application/       -- DTOs, ResponseResult<T>, service interfaces (I{Table}Service).
+                             References Domain only.
+{App}.Infrastructure/    -- EF Core DbContext + Fluent configs, Dapper-backed service
+                             implementations, stored-proc executors, DashboardStatsService.
+                             References Application (implements its interfaces) + Domain.
+{App}.Web/                -- Controllers, Blazor pages, Program.cs, the admin dashboard shell.
+                             References Infrastructure (transitively Application + Domain).
+```
+
+Every file this tool generates gets routed to its owning project automatically — entities to
+Domain, DTOs/interfaces to Application, EF/Dapper implementations to Infrastructure, everything
+UI/HTTP-facing to Web. The trickiest part of this split: Infrastructure must never reference a
+Web-layer type (that would point the dependency arrow the wrong way), so when both Clean
+Architecture and HttpClient services are selected, the single `GeneratedServiceCollectionExtensions`
+file from the single-project layout becomes two — `Infrastructure/Services/GeneratedServiceCollectionExtensions.cs`
+(`AddGeneratedCrudServices()`, Dapper) and `Web/Services/GeneratedHttpServiceCollectionExtensions.cs`
+(`AddGeneratedCrudHttpServices(...)`, HTTP) — instead of one file that would otherwise need to see
+both layers.
+
+**Each layer wires its own DI.** Infrastructure exposes `Infrastructure/DependencyInjection.cs`
+with a single `AddInfrastructure(connectionString)` extension method — registers the `DbContext`
+always, and (only if CRUD services were generated) the Dapper `IDbConnection`, `DashboardStatsService`,
+and `AddGeneratedCrudServices()`. `Program.cs` in Web shrinks to calling that one method instead of
+several inline registrations:
+
+```csharp
+builder.Services.AddInfrastructure(connectionString);
+```
+
+**Composition-root exception, deliberately**: `DashboardStatsService` (and its `ChartDataPoint`
+return type) live in Infrastructure rather than behind an `IDashboardStatsService` interface in
+Application — Web (as the composition root) is allowed to see Infrastructure directly for exactly
+this kind of DI-wiring/dashboard-glue purpose, even though Application never should. A stricter
+version would add that interface; this tool doesn't, to keep the generated surface smaller.
+
+`.razor` files don't need per-file namespace fixes for this — Blazor's SDK infers each component's
+namespace from its folder plus that project's own `<RootNamespace>`, so only `Components/_Imports.razor`
+needed to become layer-aware (importing `Domain.Entities`, `Application.Dtos/.Services/.Common`,
+and — only under Clean Architecture — `Infrastructure.Services` for the dashboard). Plain `.cs`
+files (entities, DTOs, services, controllers, configs) always need explicit `namespace`/`using`
+lines, so those were the ones that needed real per-layer routing.
+
+## HTML documentation (`docs/index.html`)
+
+Independent of everything else — works whether you're generating just entities or the full stack.
+Tick "Also generate HTML documentation" and get one self-contained page (no server, no build step,
+just open it in a browser) describing exactly what that run produced:
+
+- **Overview** — table/column/procedure counts, badges for what's included (EF Core always;
+  Dapper + Mapster, REST API, HttpClient services, Blazor UI + page style, Clean Architecture,
+  each only if actually selected).
+- **Architecture** — the 4-project layer table for Clean Architecture, or the folder layout for
+  the single-project layout, plus a note on which data-access technology is doing what.
+- **Entities** — one card per table: real `schema.table` name alongside the C# class name, a full
+  column table (SQL type, nullable, PK/identity/computed/FK badges), and an outgoing/incoming
+  relationship count.
+- **Relationships** — every FK in the selection: parent → referenced column, constraint name, delete
+  behavior.
+- **API Endpoints** (if generated) — the five REST routes per table, color-coded by HTTP method.
+- **Stored Procedures** (if any) — parameters (with direction) and result columns per procedure,
+  or a note when the result set couldn't be auto-described.
+- **Project Structure** — a real file tree built from the actual list of generated files (reflects
+  Clean Architecture's per-project folders when that's on).
+- **Getting Started** — copy-pasteable steps, adapted to whether a `.sln` or `.csproj` was
+  generated (or neither, if you only generated loose entity files to drop into an existing
+  project) and to whether CRUD services are present (which packages to add).
+
+This is generated last, after everything else, specifically so its file tree and stat counts
+reflect the real, final output rather than a guess at what was about to be generated.
 
 ## Full project scaffold (Program.cs, .csproj, admin dashboard shell)
 
@@ -280,7 +367,7 @@ field (used for the `.csproj` filename, `<AssemblyName>`, and page titles/brand 
 
 Generated files:
 
-- **`{App}.csproj`** — `net8.0`, `Microsoft.EntityFrameworkCore.SqlServer` + `.Design` always;
+- **`{App}.csproj`** — `net10.0`, `Microsoft.EntityFrameworkCore.SqlServer` + `.Design` always;
   `Microsoft.Data.SqlClient` + `Dapper` + `Mapster` only if CRUD services were generated;
   `MudBlazor` only if MudBlazor pages were generated. No package you didn't ask for.
 - **`Program.cs`** — `AddRazorComponents().AddInteractiveServerComponents()` always; conditionally
@@ -329,15 +416,22 @@ table (skipping any without a primary key), you get:
   before (Create excludes identity/computed columns, Update excludes the PK and computed columns).
 - `Services/I{Table}Service.cs` + `Services/{Table}Service.cs` — **Dapper-backed**, not EF.
   Each method (`GetAllAsync`, `GetByIdAsync`, `CreateAsync`, `UpdateAsync`, `DeleteAsync`) has
-  hand-written SQL (`SELECT * FROM ...`, `INSERT ... OUTPUT INSERTED.* VALUES ...`,
-  `UPDATE ... SET ... WHERE ...`, `DELETE ... WHERE ...`), executed via `IDbConnection` +
-  `Dapper.CommandDefinition` (so cancellation tokens flow through properly), wrapped in a
-  try/catch that turns any exception into a `ResponseResult` with `StatusCode = InternalServerError`
-  rather than throwing. Entity↔DTO conversion uses **Mapster**'s `Adapt<T>()` — convention-based
-  on matching property names (which is guaranteed here since the DTOs were generated from the
-  same column list as the entity), so there's no hand-written mapper method to keep in sync.
-  A missing row on `GetByIdAsync`/`UpdateAsync`/`DeleteAsync` returns `StatusCode = NotFound`
-  with `IsSuccessful = false`, not an exception.
+  hand-written SQL, executed via `IDbConnection` + `Dapper.CommandDefinition` (so cancellation
+  tokens flow through properly), wrapped in a try/catch that turns any exception into a
+  `ResponseResult` with `StatusCode = InternalServerError` rather than throwing. Entity↔DTO
+  conversion uses **Mapster**'s `Adapt<T>()` — convention-based on matching property names (which
+  is guaranteed here since the DTOs were generated from the same column list as the entity), so
+  there's no hand-written mapper method to keep in sync. A missing row on
+  `GetByIdAsync`/`UpdateAsync`/`DeleteAsync` returns `StatusCode = NotFound` with
+  `IsSuccessful = false`, not an exception.
+  - **Every column is explicitly aliased to its C# property name** in `SELECT`/`OUTPUT` clauses
+    (`SELECT [Brand_Id] AS [BrandId], ...` rather than `SELECT *` / `OUTPUT INSERTED.*`). This
+    matters because Dapper's default result mapper matches columns to properties by exact name
+    and has no idea about EF's `HasColumnName` Fluent config — without the alias, any property
+    whose name differs from the raw SQL column (underscores stripped during PascalCase
+    conversion, an applied AI naming suggestion, anything not a 1:1 match) would silently come
+    back as its default value instead of the real data. The alias makes this correct regardless
+    of how different the names are.
 - Composite primary keys work the same way as before — multiple method/route parameters in PK
   ordinal order — but now also drive the generated SQL's `WHERE` clause and Dapper parameter
   objects directly, from one shared helper, so the naming can't drift between the two.
@@ -389,6 +483,7 @@ table/`DbContext` output, only for this CRUD layer.
 - Composite primary keys, non-PK unique indexes, `nvarchar(max)` /
   `varchar(max)`, `decimal(p,s)` precision, and identity/computed columns are
   all read and reflected in the Fluent config.
+
 
 
 ## Notes
