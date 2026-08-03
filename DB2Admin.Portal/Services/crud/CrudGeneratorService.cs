@@ -7,12 +7,6 @@ namespace SQLAZOR.Services
     public sealed class CrudGeneratorService : ICrudGeneratorService    
     {
 
-       
-
-        // ----------------------------------------------------------------------
-        // CRUD DTOs + services (Dapper + Mapster, wrapped in ResponseResult<T>)
-        // ----------------------------------------------------------------------
-
         #region "Generate CRUD services"
         public List<GeneratedFile> GenerateCrudServices(
             DatabaseSchema schema,
@@ -21,7 +15,7 @@ namespace SQLAZOR.Services
             bool generateApiEndpoints,
             bool generateHttpClientServices,
             bool generateBlazorPages,
-            PageStyle pageStyle)
+            PageStyle pageStyle, ProjectLayers? layers = null)
         {
             var selected = selectedTableKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var tables = schema.Tables.Where(t => selected.Contains(t.FullyQualifiedName) && !t.IsView).ToList();
@@ -34,40 +28,63 @@ namespace SQLAZOR.Services
             // HttpClient services only make sense if there are endpoints for them to call.
             var actuallyGenerateHttpServices = generateApiEndpoints && generateHttpClientServices;
 
-            files.Add(GenerateResponseResultClass(rootNamespace));
+            var domainNs = layers?.DomainNamespace ?? rootNamespace;
+            var applicationNs = layers?.ApplicationNamespace ?? rootNamespace;
+            var infrastructureNs = layers?.InfrastructureNamespace ?? rootNamespace;
+            var webNs = layers?.WebNamespace ?? rootNamespace;
+            var domainPath = layers?.DomainPath ?? "";
+            var applicationPath = layers?.ApplicationPath ?? "";
+            var infrastructurePath = layers?.InfrastructurePath ?? "";
+            var webPath = layers?.WebPath ?? "";
+            var isClean = layers?.IsCleanArchitecture ?? false;
+
+            files.Add(Constant.WithPathPrefix(GenerateResponseResultClass(applicationNs), applicationPath));
 
             foreach (var table in validTables)
             {
-                files.Add(GenerateReadDto(table, rootNamespace));
-                files.Add(GenerateCreateDto(table, rootNamespace));
-                files.Add(GenerateUpdateDto(table, rootNamespace));
-                files.Add(GenerateServiceInterface(table, rootNamespace));
-                files.Add(GenerateServiceImplementationDapper(table, rootNamespace));
+                files.Add(Constant.WithPathPrefix(GenerateReadDto(table, applicationNs), applicationPath));
+                files.Add(Constant.WithPathPrefix(GenerateCreateDto(table, applicationNs), applicationPath));
+                files.Add(Constant.WithPathPrefix(GenerateUpdateDto(table, applicationNs), applicationPath));
+                files.Add(Constant.WithPathPrefix(GenerateServiceInterface(table, applicationNs), applicationPath));
+                files.Add(Constant.WithPathPrefix(GenerateServiceImplementationDapper(table, infrastructureNs, applicationNs, domainNs), infrastructurePath));
 
                 if (generateApiEndpoints)
                 {
-                    files.Add(GenerateController(table, rootNamespace));
+                    files.Add(Constant.WithPathPrefix(GenerateController(table, webNs, applicationNs), webPath));
                 }
 
                 if (actuallyGenerateHttpServices)
                 {
-                    files.Add(GenerateHttpService(table, rootNamespace));
+                    files.Add(Constant.WithPathPrefix(GenerateHttpService(table, webNs, applicationNs), webPath));
                 }
 
                 if (generateBlazorPages)
                 {
-                    files.Add(GenerateListPage(table, rootNamespace, pageStyle));
-                    files.Add(GenerateCreatePage(table, rootNamespace, pageStyle));
-                    files.Add(GenerateEditPage(table, rootNamespace, pageStyle));
+                    files.Add(Constant.WithPathPrefix(GenerateListPage(table, webNs, pageStyle), webPath));
+                    files.Add(Constant.WithPathPrefix(GenerateCreatePage(table, webNs, pageStyle), webPath));
+                    files.Add(Constant.WithPathPrefix(GenerateEditPage(table, webNs, pageStyle), webPath));
                 }
             }
 
             if (actuallyGenerateHttpServices)
             {
-                files.Add(GenerateApiHttpServiceBase(rootNamespace));
+                files.Add(Constant.WithPathPrefix(GenerateApiHttpServiceBase(webNs, applicationNs), webPath));
             }
 
-            files.Add(GenerateServiceRegistrationExtensions(validTables, rootNamespace, actuallyGenerateHttpServices));
+            if (isClean)
+            {
+                // Infrastructure must never reference Web-layer HttpService types - split registration
+                // into two files, one per owning project, instead of the single combined file below.
+                files.Add(Constant.WithPathPrefix(GenerateInfrastructureServiceRegistration(validTables, infrastructureNs, applicationNs), infrastructurePath));
+                if (actuallyGenerateHttpServices)
+                {
+                    files.Add(Constant.WithPathPrefix(GenerateWebHttpServiceRegistration(validTables, webNs, applicationNs), webPath));
+                }
+            }
+            else
+            {
+                files.Add(Constant.WithPathPrefix(GenerateServiceRegistrationExtensions(validTables, rootNamespace, actuallyGenerateHttpServices), ""));
+            }
 
             return files;
         }
@@ -190,8 +207,12 @@ namespace SQLAZOR.Services
             return new GeneratedFile { RelativePath = $"Services/I{table.ClassName}Service.cs", Content = sb.ToString() };
         }
 
-        private static GeneratedFile GenerateServiceImplementationDapper(TableInfo table, string rootNamespace)
+        private static GeneratedFile GenerateServiceImplementationDapper(TableInfo table, string rootNamespace, string? applicationNamespace = null, string? domainNamespace = null)
         {
+            applicationNamespace ??= rootNamespace;
+            domainNamespace ??= rootNamespace;
+
+
             var pkParams = BuildPkMethodParams(table);
             var pkArgs = Constant.GetPkArgs(table);
             var whereSql = BuildPkWhereSql(table);
@@ -213,9 +234,10 @@ namespace SQLAZOR.Services
             sb.AppendLine("using System.Net;");
             sb.AppendLine("using Dapper;");
             sb.AppendLine("using Mapster;");
-            sb.AppendLine($"using {rootNamespace}.Common;");
-            sb.AppendLine($"using {rootNamespace}.Dtos;");
-            sb.AppendLine($"using {rootNamespace}.Entities;");
+            sb.AppendLine($"using {applicationNamespace}.Common;");
+            sb.AppendLine($"using {applicationNamespace}.Dtos;");
+            sb.AppendLine($"using {applicationNamespace}.Services;");
+            sb.AppendLine($"using {domainNamespace}.Entities;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace}.Services;");
             sb.AppendLine();
@@ -420,8 +442,10 @@ namespace SQLAZOR.Services
             return new GeneratedFile { RelativePath = $"Services/{table.ClassName}Service.cs", Content = sb.ToString() };
         }
 
-        private static GeneratedFile GenerateController(TableInfo table, string rootNamespace)
+        private static GeneratedFile GenerateController(TableInfo table, string rootNamespace, string? applicationNamespace = null)
         {
+            applicationNamespace ??= rootNamespace;
+
             var pkParams = BuildPkMethodParams(table);
             var pkArgList = BuildPkArgList(table);
             var routeTemplate = Constant.BuildPkPathSegment(table);
@@ -431,8 +455,8 @@ namespace SQLAZOR.Services
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using Microsoft.AspNetCore.Mvc;");
-            sb.AppendLine($"using {rootNamespace}.Dtos;");
-            sb.AppendLine($"using {rootNamespace}.Services;");
+            sb.AppendLine($"using {applicationNamespace}.Dtos;");
+            sb.AppendLine($"using {applicationNamespace}.Services;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace}.Controllers;");
             sb.AppendLine();
@@ -492,12 +516,13 @@ namespace SQLAZOR.Services
             return new GeneratedFile { RelativePath = $"Controllers/{pluralClass}Controller.cs", Content = sb.ToString() };
         }
 
-        private static GeneratedFile GenerateApiHttpServiceBase(string rootNamespace)
+        private static GeneratedFile GenerateApiHttpServiceBase(string rootNamespace, string? applicationNamespace = null)
         {
+            applicationNamespace ??= rootNamespace;
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using System.Net.Http.Json;");
-            sb.AppendLine($"using {rootNamespace}.Common;");
+            sb.AppendLine($"using {applicationNamespace}.Common;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace}.Services;");
             sb.AppendLine();
@@ -534,8 +559,9 @@ namespace SQLAZOR.Services
             return new GeneratedFile { RelativePath = "Services/ApiHttpServiceBase.cs", Content = sb.ToString() };
         }
 
-        private static GeneratedFile GenerateHttpService(TableInfo table, string rootNamespace)
+        private static GeneratedFile GenerateHttpService(TableInfo table, string rootNamespace, string? applicationNamespace = null)
         {
+            applicationNamespace ??= rootNamespace;
             var pkParams = BuildPkMethodParams(table);
             var pathSegment = Constant.BuildPkPathSegment(table); // e.g. "{id}" or "{orderId}/{lineNumber}" - valid as a C# interpolation body too
             var pluralRoute = NamingHelper.Pluralize(table.ClassName).ToLowerInvariant();
@@ -543,8 +569,9 @@ namespace SQLAZOR.Services
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using System.Net.Http.Json;");
-            sb.AppendLine($"using {rootNamespace}.Common;");
-            sb.AppendLine($"using {rootNamespace}.Dtos;");
+            sb.AppendLine($"using {applicationNamespace}.Common;");
+            sb.AppendLine($"using {applicationNamespace}.Dtos;");
+            sb.AppendLine($"using {applicationNamespace}.Services;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace}.Services;");
             sb.AppendLine();
@@ -1282,5 +1309,60 @@ namespace SQLAZOR.Services
 
             return pkCols.Select(c => (c.PropertyName, c)).ToList();
         }
+
+        private static GeneratedFile GenerateInfrastructureServiceRegistration(List<TableInfo> tables, string infrastructureNamespace, string applicationNamespace)
+        {
+            var sb = new StringBuilder();
+            sb.Append(Constant.GeneratedHeader);
+            sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+            sb.AppendLine($"using {applicationNamespace}.Services;");
+            sb.AppendLine();
+            sb.AppendLine($"namespace {infrastructureNamespace}.Services;");
+            sb.AppendLine();
+            sb.AppendLine("/// <summary>Registers the Dapper-backed services - use when this project owns the DB connection directly.</summary>");
+            sb.AppendLine("public static class GeneratedServiceCollectionExtensions");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static IServiceCollection AddGeneratedCrudServices(this IServiceCollection services)");
+            sb.AppendLine("    {");
+            foreach (var table in tables.OrderBy(t => t.ClassName))
+            {
+                sb.AppendLine($"        services.AddScoped<I{table.ClassName}Service, {table.ClassName}Service>();");
+            }
+            sb.AppendLine();
+            sb.AppendLine("        return services;");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            return new GeneratedFile { RelativePath = "Services/GeneratedServiceCollectionExtensions.cs", Content = sb.ToString() };
+        }
+
+        private static GeneratedFile GenerateWebHttpServiceRegistration(List<TableInfo> tables, string webNamespace, string applicationNamespace)
+        {
+            var sb = new StringBuilder();
+            sb.Append(Constant.GeneratedHeader);
+            sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+            sb.AppendLine($"using {applicationNamespace}.Services;");
+            sb.AppendLine();
+            sb.AppendLine($"namespace {webNamespace}.Services;");
+            sb.AppendLine();
+            sb.AppendLine("/// <summary>Registers the HttpClient-backed services - use when this project calls the API remotely.");
+            sb.AppendLine("/// Configure each client's base address via AddHttpClient's builder, e.g.:");
+            sb.AppendLine("/// services.AddGeneratedCrudHttpServices(client => client.BaseAddress = new Uri(\"https://your-api/\"));</summary>");
+            sb.AppendLine("public static class GeneratedHttpServiceCollectionExtensions");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static IServiceCollection AddGeneratedCrudHttpServices(this IServiceCollection services, Action<HttpClient> configureClient)");
+            sb.AppendLine("    {");
+            foreach (var table in tables.OrderBy(t => t.ClassName))
+            {
+                sb.AppendLine($"        services.AddHttpClient<I{table.ClassName}Service, {table.ClassName}HttpService>(configureClient);");
+            }
+            sb.AppendLine();
+            sb.AppendLine("        return services;");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            return new GeneratedFile { RelativePath = "Services/GeneratedHttpServiceCollectionExtensions.cs", Content = sb.ToString() };
+        }
+
     }
 }

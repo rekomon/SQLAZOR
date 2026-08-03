@@ -5,15 +5,16 @@ namespace SQLAZOR.Services
 {
     public sealed class SchemaCodeGeneratorService: ISchemaCodeGeneratorService
     {
-      
+
 
 
         #region Generate
         public List<GeneratedFile> Generate(
-        DatabaseSchema schema,
-        IEnumerable<string> selectedTableKeys,
-        string rootNamespace,
-        string dbContextName)
+       DatabaseSchema schema,
+       IEnumerable<string> selectedTableKeys,
+       string rootNamespace,
+       string dbContextName,
+       ProjectLayers? layers = null)
         {
             var selected = selectedTableKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var tables = schema.Tables.Where(t => selected.Contains(t.FullyQualifiedName)).ToList();
@@ -27,15 +28,20 @@ namespace SQLAZOR.Services
 
             var (childNavNames, parentNavNames) = BuildNavigationNames(relevantFks, tableByKey);
 
+            var domainNs = layers?.DomainNamespace ?? rootNamespace;
+            var infrastructureNs = layers?.InfrastructureNamespace ?? rootNamespace;
+            var domainPath = layers?.DomainPath ?? "";
+            var infrastructurePath = layers?.InfrastructurePath ?? "";
+
             var files = new List<GeneratedFile>();
 
             foreach (var table in tables)
             {
-                files.Add(GeneratePoco(table, relevantFks, tableByKey, childNavNames, parentNavNames, rootNamespace));
-                files.Add(GenerateConfiguration(table, relevantFks, tableByKey, childNavNames, parentNavNames, rootNamespace));
+                files.Add(Constant.WithPathPrefix(GeneratePoco(table, relevantFks, tableByKey, childNavNames, parentNavNames, domainNs), domainPath));
+                files.Add(Constant.WithPathPrefix(GenerateConfiguration(table, relevantFks, tableByKey, childNavNames, parentNavNames, infrastructureNs, domainNs), infrastructurePath));
             }
 
-            files.Add(GenerateDbContext(tables, rootNamespace, dbContextName));
+            files.Add(Constant.WithPathPrefix(GenerateDbContext(tables, infrastructureNs, dbContextName, domainNs), infrastructurePath));
 
             return files;
         }
@@ -232,13 +238,14 @@ namespace SQLAZOR.Services
             Dictionary<string, TableInfo> tableByKey,
             Dictionary<ForeignKeyInfo, string> childNav,
             Dictionary<ForeignKeyInfo, string> parentNav,
-            string rootNamespace)
+            string rootNamespace,
+        string? entitiesNamespace = null)
         {
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using Microsoft.EntityFrameworkCore;");
             sb.AppendLine("using Microsoft.EntityFrameworkCore.Metadata.Builders;");
-            sb.AppendLine($"using {rootNamespace}.Entities;");
+            sb.AppendLine($"using {entitiesNamespace}.Entities;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace}.Configurations;");
             sb.AppendLine();
@@ -371,12 +378,12 @@ namespace SQLAZOR.Services
         // ----------------------------------------------------------------------
 
         #region DbContext generation
-        private static GeneratedFile GenerateDbContext(List<TableInfo> tables, string rootNamespace, string dbContextName)
+        private static GeneratedFile GenerateDbContext(List<TableInfo> tables, string rootNamespace, string dbContextName, string? entitiesNamespace = null)
         {
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
             sb.AppendLine("using Microsoft.EntityFrameworkCore;");
-            sb.AppendLine($"using {rootNamespace}.Entities;");
+            sb.AppendLine($"using {entitiesNamespace}.Entities;");
             sb.AppendLine();
             sb.AppendLine($"namespace {rootNamespace};");
             sb.AppendLine();

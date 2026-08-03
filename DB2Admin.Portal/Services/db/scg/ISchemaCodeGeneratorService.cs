@@ -10,8 +10,9 @@ namespace SQLAZOR.Services
         /// </summary>
         List<GeneratedFile> Generate(
             DatabaseSchema schema,
-            IEnumerable<string> selectedTableKeys,
-            string rootNamespace,
-            string dbContextName);
+        IEnumerable<string> selectedTableKeys,
+        string rootNamespace,
+        string dbContextName,
+        ProjectLayers? layers = null);
     }
 }

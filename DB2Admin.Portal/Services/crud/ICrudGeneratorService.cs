@@ -25,6 +25,6 @@ namespace SQLAZOR.Services
             bool generateApiEndpoints,
             bool generateHttpClientServices,
             bool generateBlazorPages,
-            PageStyle pageStyle);
+            PageStyle pageStyle, ProjectLayers? layers = null);
     }
 }

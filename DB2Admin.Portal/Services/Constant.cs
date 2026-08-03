@@ -56,5 +56,10 @@ public static class Constant
     }
     #endregion
 
+
+    public static GeneratedFile WithPathPrefix(GeneratedFile file, string pathPrefix) =>
+       string.IsNullOrEmpty(pathPrefix) ? file : new GeneratedFile { RelativePath = pathPrefix + file.RelativePath, Content = file.Content };
+
+
     public static string HtmlEncode(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
 }

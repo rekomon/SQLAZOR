@@ -4,6 +4,7 @@
 @inject IStoredProcedureGeneratorService _ProcedureGenerator
 @inject ICrudGeneratorService _CrudGenerator
 @inject IProjectScaffoldGeneratorService _ProjectGenerator
+@inject IGenerateDocumentationService _GenerateDocumentation
 @inject ISchemaReaderService SchemaReader
 @inject GenerationState _State
 @inject IOllamaService Ollama
@@ -24,6 +25,30 @@
                     <MudInput T="string" @bind-Value="_State.DbContextName" id="txtdbclass" class="w-100"
                               Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="AppDbContext"></MudInput>
                      </div>
+
+                <div class="col-12 mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="_generateDocumentation" >
+                        <label class="text-primary" style="font-size:0.85rem;">
+                            generate HTML documentation (<code>docs/index.html</code>)
+                        </label>
+
+                        <Popover Title="Generate Documentation" Class="w-80"
+                                 Content="  One self-contained, standalone page (no server, no build step — just open it in a browser)
+            documenting exactly what this run produced: schema overview with tech-stack badges,
+            architecture layout, a card per entity (columns, types, PK/FK badges), relationships,
+            API endpoint reference (if generated), stored procedure reference (params + result
+            columns, if any), a full file tree of everything generated, and copy-pasteable
+            'getting started' steps tailored to what you actually selected. Independent of the
+            other options below — works whether you're generating just entities or the full stack."
+                                 Placement="top"
+                                 Trigger="click">
+                            <button class="btn btn-sm btn-outline-secondary">🔦 Hint</button>
+                        </Popover>
+                    </div>
+
+                        
+                </div>
                     <div class="col-12 mb-3">
                         <div class="form-check">
                         <input class="form-check-input" type="checkbox" @bind="_generateCrudServices" @bind:after="OnGenerateCrudServicesChanged">
@@ -177,6 +202,32 @@
                         <MudInput T="string" @bind-Value="_State.ApplicationName" id="appName" class="w-100"
                                   Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="AppDbContext"></MudInput>
                     </div>
+
+                    <div class="col-12 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   @bind="_useCleanArchitecture">
+                            <label class="text-primary" style="font-size:0.85rem;">
+                                Use Clean Architecture (4-project solution: Domain / Application / Infrastructure / Web)
+                            </label>
+                            <Popover Title="Generate Blazor Pages" Class="w-80"
+                                     Content="Instead of one project, generates <code>{App}.Domain</code> (entities only, zero dependencies),
+                                <code>{App}.Application</code> (DTOs, <code>ResponseResult&lt;T&gt;</code>, service interfaces —
+                                depends only on Domain), <code>{App}.Infrastructure</code> (EF Core, Dapper-backed service
+                                implementations, stored-proc executors — depends on Application), and <code>{App}.Web</code>
+                                (controllers, Blazor pages, <code>Program.cs</code> — depends on all three), tied together by an
+                                <code>{App}.sln</code> with the dependency direction enforced by real project references, not
+                                just convention. Each layer wires its own DI via <code>Add{Layer}(...)</code> extension methods
+                                (e.g. Infrastructure's <code>AddInfrastructure(connectionString)</code>), so <code>Program.cs</code>
+                                stays a handful of lines. Unchecked, everything lands in one project as before."
+                                     Placement="top"
+                                     Trigger="click">
+                                <button class="btn btn-outline-secondary">🔦 Hint</button>
+                            </Popover>
+                        </div>
+
+                    </div>
+
                 }
 
                 @if (_generateProjectScaffold && _generateCrudServices)
@@ -266,6 +317,8 @@
     private bool _generateBlazorPages;
     private PageStyle _pageStyle = PageStyle.Plain;
     private bool _generateProjectScaffold;
+    private bool _generateDocumentation;
+    private bool _useCleanArchitecture;
     bool manualVisible=false;
     private bool _insightsBusy;
     private string? _insightsStatusMessage;
@@ -402,20 +455,27 @@
 
         var ns = string.IsNullOrWhiteSpace(_State.RootNamespace) ? "MyApp.Data" : _State.RootNamespace.Trim();
         var ctxName = string.IsNullOrWhiteSpace(_State.DbContextName) ? "AppDbContext" : _State.DbContextName.Trim();
+        var appName = string.IsNullOrWhiteSpace(_State.ApplicationName) ? "GeneratedApp" : _State.ApplicationName.Trim();
+
+        var useCleanArchitecture = _generateProjectScaffold && _useCleanArchitecture;
+        var layers = useCleanArchitecture ? ProjectLayers.Create(true, appName, ns) : null;
+
+
 
         var files = new List<GeneratedFile>();
         var warnings = new List<string>();
+        var proceduresIncluded = new List<StoredProcedureDetail>();
         var effectiveSchema = BuildEffectiveSchema();
 
         if (_State.SelectedTableKeys.Count > 0)
         {
-            files.AddRange(_SchemaCode.Generate(effectiveSchema, _State.SelectedTableKeys, ns, ctxName));
+            files.AddRange(_SchemaCode.Generate(effectiveSchema, _State.SelectedTableKeys, ns, ctxName, layers));
 
             if (_generateCrudServices)
             {
                 files.AddRange(_CrudGenerator.GenerateCrudServices(
                     effectiveSchema, _State.SelectedTableKeys, ns,
-                    _generateApiEndpoints, _generateHttpClientServices, _generateBlazorPages, _pageStyle));
+                    _generateApiEndpoints, _generateHttpClientServices, _generateBlazorPages, _pageStyle, layers));
 
                 var skippedNoKey = _State.Schema.Tables
                     .Where(t => _State.SelectedTableKeys.Contains(t.FullyQualifiedName) && !t.IsView && t.PrimaryKeyColumns.Count == 0)
@@ -429,13 +489,13 @@
 
             if (_generateProjectScaffold)
             {
-                var appName = string.IsNullOrWhiteSpace(_State.ApplicationName) ? "GeneratedApp" : _State.ApplicationName.Trim();
                 var acceptedInsights = _State.DashboardInsights
                     .Where(i => _State.AcceptedInsightTitles.Contains(i.Title))
                     .ToList();
                 files.AddRange(_ProjectGenerator.GenerateProjectScaffold(
                     effectiveSchema, _State.SelectedTableKeys, ns, appName, ctxName, _State.Conn.ConnectionString,
-                    _generateApiEndpoints, _generateCrudServices, _generateBlazorPages, _pageStyle, acceptedInsights));
+                    _generateApiEndpoints, _generateCrudServices, _generateBlazorPages, _pageStyle, acceptedInsights,
+                    useCleanArchitecture));
             }
         }
 
@@ -470,6 +530,14 @@
             }
         }
 
+
+        if (_generateDocumentation)
+        {
+            files.AddRange(_GenerateDocumentation.GenerateDocumentation(
+                effectiveSchema, _State.SelectedTableKeys, proceduresIncluded, files,
+                appName, ns, ctxName, _generateCrudServices, _generateApiEndpoints,
+                _generateHttpClientServices, _generateBlazorPages, _pageStyle, useCleanArchitecture));
+        }
         _State.GeneratedFiles = files;
         _selectedFile = _State.GeneratedFiles.FirstOrDefault();
         _State.NotifyStateChanged();

@@ -11,7 +11,7 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
     // ----------------------------------------------------------------------
 
     public List<GeneratedFile> GenerateProjectScaffold(
-        DatabaseSchema schema,
+          DatabaseSchema schema,
         IEnumerable<string> selectedTableKeys,
         string rootNamespace,
         string applicationName,
@@ -21,7 +21,8 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         bool includeCrudServices,
         bool includeBlazorPages,
         PageStyle pageStyle,
-        List<DashboardInsightCandidate> acceptedInsights)
+        List<DashboardInsightCandidate> acceptedInsights,
+        bool useCleanArchitecture = false)
     {
         var selected = selectedTableKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var tables = schema.Tables.Where(t => selected.Contains(t.FullyQualifiedName) && !t.IsView).ToList();
@@ -34,37 +35,328 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         var validInsights = includeCrudServices ? acceptedInsights.Where(i => i.IsValid).ToList() : [];
         var hasDashboardData = statTables.Count > 0 || validInsights.Count > 0;
 
-        var files = new List<GeneratedFile>
+        var layers = ProjectLayers.Create(useCleanArchitecture, applicationName, rootNamespace);
+        var webNs = layers.WebNamespace;
+        var infrastructureNs = layers.InfrastructureNamespace;
+        var webPath = layers.WebPath;
+        var infrastructurePath = layers.InfrastructurePath;
+
+        var files = new List<GeneratedFile>();
+
+        if (useCleanArchitecture)
         {
-            GenerateCsproj(applicationName, rootNamespace, includeCrudServices, pageStyle),
-            GenerateProgramCs(rootNamespace, dbContextName, includeControllers, includeCrudServices, pageStyle),
-            GenerateAppSettings(connectionString),
-            GenerateLaunchSettings(),
-            GenerateComponentsImports(rootNamespace, pageStyle),
-            GenerateAppRazor(applicationName, pageStyle, validInsights.Count > 0),
-            GenerateRoutesRazor(),
-            GenerateMainLayout(applicationName, pageStyle),
-            GenerateNavMenu(navTables, pageStyle),
-            GenerateDashboardPage(applicationName, navTables, statTables, validInsights, pageStyle)
-        };
+            files.Add(GenerateSolutionFile(applicationName));
+            files.Add(GenerateDomainCsproj(applicationName));
+            files.Add(GenerateApplicationCsproj(applicationName));
+            files.Add(GenerateInfrastructureCsproj(applicationName, includeCrudServices));
+            files.Add(GenerateWebCsproj(applicationName, includeControllers, pageStyle));
+            files.Add(Constant.WithPathPrefix(GenerateInfrastructureDependencyInjection(layers, dbContextName, includeCrudServices, hasDashboardData), infrastructurePath));
+            files.Add(Constant.WithPathPrefix(GenerateProgramCsCleanArchitecture(layers, includeControllers, includeCrudServices, pageStyle), webPath));
+        }
+        else
+        {
+            files.Add(GenerateCsproj(applicationName, rootNamespace, includeCrudServices, pageStyle));
+            files.Add(GenerateProgramCs(rootNamespace, dbContextName, includeControllers, includeCrudServices, pageStyle));
+        }
+
+        files.Add(Constant.WithPathPrefix(GenerateAppSettings(connectionString), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateLaunchSettings(), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateComponentsImports(layers, pageStyle), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateAppRazor(applicationName, pageStyle, validInsights.Count > 0), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateRoutesRazor(), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateMainLayout(applicationName, pageStyle), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateNavMenu(navTables, pageStyle), webPath));
+        files.Add(Constant.WithPathPrefix(GenerateDashboardPage(applicationName, navTables, statTables, validInsights, pageStyle), webPath));
 
         if (pageStyle == PageStyle.Plain)
         {
-            files.Add(GenerateAdminCss());
+            files.Add(Constant.WithPathPrefix(GenerateAdminCss(), webPath));
         }
 
         if (hasDashboardData)
         {
-            files.Add(GenerateDashboardStatsService(rootNamespace, statTables, validInsights));
+            files.Add(Constant.WithPathPrefix(GenerateDashboardStatsService(infrastructureNs, statTables, validInsights), infrastructurePath));
 
             if (validInsights.Count > 0 && pageStyle != PageStyle.MudBlazor)
             {
-                files.Add(GenerateChartsJs());
+                files.Add(Constant.WithPathPrefix(GenerateChartsJs(), webPath));
             }
         }
 
         return files;
     }
+
+
+    private static GeneratedFile GenerateSolutionFile(string applicationName)
+    {
+        var domainGuid = Guid.NewGuid().ToString("B").ToUpperInvariant();
+        var applicationGuid = Guid.NewGuid().ToString("B").ToUpperInvariant();
+        var infrastructureGuid = Guid.NewGuid().ToString("B").ToUpperInvariant();
+        var webGuid = Guid.NewGuid().ToString("B").ToUpperInvariant();
+        const string csharpProjectTypeGuid = "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}";
+
+        var projects = new[]
+        {
+            ($"{applicationName}.Web", webGuid),
+            ($"{applicationName}.Domain", domainGuid),
+            ($"{applicationName}.Application", applicationGuid),
+            ($"{applicationName}.Infrastructure", infrastructureGuid)
+            
+        };
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("Microsoft Visual Studio Solution File, Format Version 12.00");
+        sb.AppendLine("# Visual Studio Version 17");
+        sb.AppendLine("VisualStudioVersion = 17.0.31903.59");
+        sb.AppendLine("MinimumVisualStudioVersion = 10.0.40219.1");
+        foreach (var (name, guid) in projects)
+        {
+            sb.AppendLine($"Project(\"{csharpProjectTypeGuid}\") = \"{name}\", \"{name}\\{name}.csproj\", \"{guid}\"");
+            sb.AppendLine("EndProject");
+        }
+        sb.AppendLine("Global");
+        sb.AppendLine("\tGlobalSection(SolutionConfigurationPlatforms) = preSolution");
+        sb.AppendLine("\t\tDebug|Any CPU = Debug|Any CPU");
+        sb.AppendLine("\t\tRelease|Any CPU = Release|Any CPU");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(ProjectConfigurationPlatforms) = postSolution");
+        foreach (var (_, guid) in projects)
+        {
+            sb.AppendLine($"\t\t{guid}.Debug|Any CPU.ActiveCfg = Debug|Any CPU");
+            sb.AppendLine($"\t\t{guid}.Debug|Any CPU.Build.0 = Debug|Any CPU");
+            sb.AppendLine($"\t\t{guid}.Release|Any CPU.ActiveCfg = Release|Any CPU");
+            sb.AppendLine($"\t\t{guid}.Release|Any CPU.Build.0 = Release|Any CPU");
+        }
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(SolutionProperties) = preSolution");
+        sb.AppendLine("\t\tHideSolutionNode = FALSE");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("EndGlobal");
+
+        return new GeneratedFile { RelativePath = $"{applicationName}.sln", Content = sb.ToString() };
+    }
+
+    private static GeneratedFile GenerateDomainCsproj(string applicationName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
+        sb.AppendLine();
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{Constant._TargetFramework_ver}</TargetFramework>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
+        sb.AppendLine($"    <RootNamespace>{applicationName}.Domain</RootNamespace>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <!-- Entities only - zero dependencies on any other layer or package, by design. -->");
+        sb.AppendLine();
+        sb.AppendLine("</Project>");
+
+        return new GeneratedFile { RelativePath = $"{applicationName}.Domain/{applicationName}.Domain.csproj", Content = sb.ToString() };
+    }
+
+    private static GeneratedFile GenerateApplicationCsproj(string applicationName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
+        sb.AppendLine();
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{Constant._TargetFramework_ver}</TargetFramework>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
+        sb.AppendLine($"    <RootNamespace>{applicationName}.Application</RootNamespace>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine($"    <ProjectReference Include=\"..\\{applicationName}.Domain\\{applicationName}.Domain.csproj\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine();
+        sb.AppendLine("</Project>");
+
+        return new GeneratedFile { RelativePath = $"{applicationName}.Application/{applicationName}.Application.csproj", Content = sb.ToString() };
+    }
+
+
+    private static GeneratedFile GenerateInfrastructureCsproj(string applicationName, bool includeCrudServices)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
+        sb.AppendLine();
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{Constant._TargetFramework_ver}</TargetFramework>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
+        sb.AppendLine($"    <RootNamespace>{applicationName}.Infrastructure</RootNamespace>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine($"    <ProjectReference Include=\"..\\{applicationName}.Application\\{applicationName}.Application.csproj\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine($"    <PackageReference Include=\"Microsoft.EntityFrameworkCore.SqlServer\" Version=\"{Constant._SqlServer_ver}\" />");
+        sb.AppendLine($"    <PackageReference Include=\"Microsoft.EntityFrameworkCore.Design\" Version=\"{Constant._CoreDesign_ver}\">");
+        sb.AppendLine("      <PrivateAssets>all</PrivateAssets>");
+        sb.AppendLine("      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>");
+        sb.AppendLine("    </PackageReference>");
+        if (includeCrudServices)
+        {
+            sb.AppendLine($"    <PackageReference Include=\"Microsoft.Data.SqlClient\" Version=\"{Constant._SqlClient_ver}\" />");
+            sb.AppendLine($"    <PackageReference Include=\"Dapper\" Version=\"{Constant._Dapper_ver}\" />");
+            sb.AppendLine($"    <PackageReference Include=\"Mapster\" Version=\"{Constant._Mapster_ver}\" />");
+        }
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine();
+        sb.AppendLine("</Project>");
+
+        return new GeneratedFile { RelativePath = $"{applicationName}.Infrastructure/{applicationName}.Infrastructure.csproj", Content = sb.ToString() };
+    }
+
+
+    private static GeneratedFile GenerateWebCsproj(string applicationName, bool includeControllers, PageStyle pageStyle)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk.Web\">");
+        sb.AppendLine();
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{Constant._TargetFramework_ver}</TargetFramework>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>enable</ImplicitUsings>");
+        sb.AppendLine($"    <RootNamespace>{applicationName}.Web</RootNamespace>");
+        sb.AppendLine($"    <AssemblyName>{applicationName}.Web</AssemblyName>");
+        sb.AppendLine($"    <UserSecretsId>{Guid.NewGuid()}</UserSecretsId>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine();
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine($"    <ProjectReference Include=\"..\\{applicationName}.Infrastructure\\{applicationName}.Infrastructure.csproj\" />");
+        sb.AppendLine("  </ItemGroup>");
+
+        if (pageStyle == PageStyle.MudBlazor)
+        {
+            sb.AppendLine();
+            sb.AppendLine("  <ItemGroup>");
+            sb.AppendLine($"    <PackageReference Include=\"MudBlazor\" Version=\"{Constant._MudBlazor_ver}\" />");
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("</Project>");
+
+        return new GeneratedFile { RelativePath = $"{applicationName}.Web/{applicationName}.Web.csproj", Content = sb.ToString() };
+    }
+
+    private static GeneratedFile GenerateInfrastructureDependencyInjection(ProjectLayers layers, string dbContextName, bool includeCrudServices, bool hasDashboardData)
+    {
+        var sb = new StringBuilder();
+        sb.Append(Constant.GeneratedHeader);
+        sb.AppendLine("using Microsoft.EntityFrameworkCore;");
+        sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+        if (includeCrudServices)
+        {
+            sb.AppendLine("using System.Data;");
+            sb.AppendLine("using Microsoft.Data.SqlClient;");
+            sb.AppendLine($"using {layers.InfrastructureNamespace}.Services;");
+        }
+        sb.AppendLine();
+        sb.AppendLine($"namespace {layers.InfrastructureNamespace};");
+        sb.AppendLine();
+        sb.AppendLine("public static class DependencyInjection");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString)");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        services.AddDbContext<{dbContextName}>(options => options.UseSqlServer(connectionString));");
+
+        if (includeCrudServices)
+        {
+            sb.AppendLine();
+            sb.AppendLine("        // Dapper needs a raw IDbConnection, registered separately from the DbContext above -");
+            sb.AppendLine("        // the generated {Table}Service classes use Dapper directly, not EF Core, for CRUD.");
+            sb.AppendLine("        services.AddScoped<IDbConnection>(_ => new SqlConnection(connectionString));");
+            if (hasDashboardData)
+            {
+                sb.AppendLine($"        services.AddScoped<{layers.InfrastructureNamespace}.Services.DashboardStatsService>();");
+            }
+            sb.AppendLine("        services.AddGeneratedCrudServices();");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("        return services;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return new GeneratedFile { RelativePath = "DependencyInjection.cs", Content = sb.ToString() };
+    }
+
+    private static GeneratedFile GenerateProgramCsCleanArchitecture(ProjectLayers layers, bool includeControllers, bool includeCrudServices, PageStyle pageStyle)
+    {
+        var sb = new StringBuilder();
+        if (pageStyle == PageStyle.MudBlazor)
+        {
+            sb.AppendLine("using MudBlazor.Services;");
+        }
+        sb.AppendLine($"using {layers.InfrastructureNamespace};");
+        sb.AppendLine($"using {layers.WebNamespace}.Components;");
+        sb.AppendLine();
+        sb.AppendLine("var builder = WebApplication.CreateBuilder(args);");
+        sb.AppendLine();
+        sb.AppendLine("builder.Services.AddRazorComponents()");
+        sb.AppendLine("    .AddInteractiveServerComponents();");
+        sb.AppendLine();
+
+        if (includeControllers)
+        {
+            sb.AppendLine("builder.Services.AddControllers();");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("var connectionString = builder.Configuration.GetConnectionString(\"DefaultConnection\")");
+        sb.AppendLine("    ?? throw new InvalidOperationException(\"Connection string 'DefaultConnection' not found - check appsettings.json.\");");
+        sb.AppendLine();
+        sb.AppendLine("// Everything persistence-related (DbContext, Dapper connection, generated CRUD services,");
+        sb.AppendLine("// dashboard stats) is wired up in one place by the Infrastructure layer itself.");
+        sb.AppendLine("builder.Services.AddInfrastructure(connectionString);");
+        sb.AppendLine();
+
+        if (pageStyle == PageStyle.MudBlazor)
+        {
+            sb.AppendLine("builder.Services.AddMudServices();");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("var app = builder.Build();");
+        sb.AppendLine();
+        sb.AppendLine("if (!app.Environment.IsDevelopment())");
+        sb.AppendLine("{");
+        sb.AppendLine("    app.UseExceptionHandler(\"/Error\", createScopeForErrors: true);");
+        sb.AppendLine("    app.UseHsts();");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("app.UseHttpsRedirection();");
+        sb.AppendLine("app.UseAntiforgery();");
+        sb.AppendLine("app.MapStaticAssets();");
+        sb.AppendLine();
+
+        if (includeControllers)
+        {
+            sb.AppendLine("app.MapControllers();");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("app.MapRazorComponents<App>()");
+        sb.AppendLine("    .AddInteractiveServerRenderMode();");
+        sb.AppendLine();
+        sb.AppendLine("app.Run();");
+
+        return new GeneratedFile { RelativePath = "Program.cs", Content = sb.ToString() };
+    }
+
+
+
+
+
+
+
 
     private static GeneratedFile GenerateCsproj(string applicationName, string rootNamespace, bool includeCrudServices, PageStyle pageStyle)
     {
@@ -236,7 +528,7 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         return new GeneratedFile { RelativePath = "Properties/launchSettings.json", Content = sb.ToString() };
     }
 
-    private static GeneratedFile GenerateComponentsImports(string rootNamespace, PageStyle pageStyle)
+    private static GeneratedFile GenerateComponentsImports(ProjectLayers layers, PageStyle pageStyle)
     {
         var sb = new StringBuilder();
         sb.AppendLine("@using System.Net.Http");
@@ -245,13 +537,19 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
         sb.AppendLine("@using Microsoft.AspNetCore.Components.Web");
         sb.AppendLine("@using static Microsoft.AspNetCore.Components.Web.RenderMode");
         sb.AppendLine("@using Microsoft.JSInterop");
-        sb.AppendLine($"@using {rootNamespace}");
-        sb.AppendLine($"@using {rootNamespace}.Components");
-        sb.AppendLine($"@using {rootNamespace}.Components.Layout");
-        sb.AppendLine($"@using {rootNamespace}.Entities");
-        sb.AppendLine($"@using {rootNamespace}.Dtos");
-        sb.AppendLine($"@using {rootNamespace}.Services");
-        sb.AppendLine($"@using {rootNamespace}.Common");
+        sb.AppendLine($"@using {layers.WebNamespace}");
+        sb.AppendLine($"@using {layers.WebNamespace}.Components");
+        sb.AppendLine($"@using {layers.WebNamespace}.Components.Layout");
+        sb.AppendLine($"@using {layers.DomainNamespace}.Entities");
+        sb.AppendLine($"@using {layers.ApplicationNamespace}.Dtos");
+        sb.AppendLine($"@using {layers.ApplicationNamespace}.Services");
+        sb.AppendLine($"@using {layers.ApplicationNamespace}.Common");
+        if (layers.IsCleanArchitecture)
+        {
+            // DashboardStatsService/ChartDataPoint live in Infrastructure - Web (the composition root)
+            // is allowed to see Infrastructure directly, unlike Application, which never should.
+            sb.AppendLine($"@using {layers.InfrastructureNamespace}.Services");
+        }
         if (pageStyle == PageStyle.MudBlazor)
         {
             sb.AppendLine("@using MudBlazor");
@@ -836,7 +1134,6 @@ public class ProjectScaffoldGeneratorService : IProjectScaffoldGeneratorService
 
         return new GeneratedFile { RelativePath = "Services/DashboardStatsService.cs", Content = sb.ToString() };
     }
-
 
 
     private static GeneratedFile GenerateChartsJs()

@@ -37,6 +37,7 @@ namespace SQLAZOR.Portal
             builder.Services.AddScoped<IStoredProcedureGeneratorService, StoredProcedureGeneratorService>();
             builder.Services.AddScoped<ICrudGeneratorService, CrudGeneratorService>();
             builder.Services.AddScoped<IProjectScaffoldGeneratorService, ProjectScaffoldGeneratorService>();
+            builder.Services.AddScoped<IGenerateDocumentationService, GenerateDocumentationService>();
             builder.Services.AddHttpClient<IOllamaService, OllamaService>(client =>
             {
                 client.Timeout = TimeSpan.FromMinutes(5); // local LLM inference can be slow, especially on first load of a model
