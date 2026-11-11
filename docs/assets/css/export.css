@@ -1,0 +1,29 @@
+/* Static export: scroll the document itself instead of Blazor's slim-scroll container. */
+html,
+body {
+    overflow-x: clip;
+    overflow-y: visible;
+}
+
+/* The collapsed navbar has no backdrop once Bootstrap's JS is gone. */
+@media (max-width: 991.98px) {
+    .navbar-collapse {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        border: 1px solid var(--cu-card-border);
+        border-radius: var(--cu-radius);
+        background: rgba(6, 16, 24, 0.96);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    }
+
+    [data-theme="light"] .navbar-collapse {
+        background: rgba(255, 255, 255, 0.97);
+        border-color: rgba(0, 150, 255, 0.3);
+        box-shadow: 0 20px 50px rgba(10, 30, 50, 0.18);
+    }
+
+    .navbar-collapse .navbar-nav {
+        margin-bottom: 0.75rem !important;
+    }
+}

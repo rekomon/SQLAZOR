@@ -1,0 +1,237 @@
+/* /Components/Layout/DBSPINNER.razor.rz.scp.css */
+.db-relation-spinner[b-ouilsqs483] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card-bg, rgba(0, 20, 30, 0.7));
+    border: 1px solid var(--card-border, rgba(0, 240, 255, 0.25));
+    border-radius: var(--radius, 8px);
+    box-shadow: var(--shadow, 0 0 30px rgba(0, 240, 255, 0.15));
+    backdrop-filter: blur(12px);
+    transition: all var(--transition, .25s ease);
+    max-width: 180px;
+    margin: 0 auto;
+}
+
+    .db-relation-spinner svg[b-ouilsqs483] {
+        width: 100%;
+        max-width: 120px;
+        height: auto;
+        display: block;
+    }
+
+.spinner-label[b-ouilsqs483] {
+    text-align: center;
+    line-height: 1.4;
+}
+
+    .spinner-label .label-main[b-ouilsqs483] {
+        display: block;
+        font-family: var(--font-cyber, 'Orbitron', monospace);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        color: var(--text, #e0f0ff);
+    }
+
+    .spinner-label .label-sub[b-ouilsqs483] {
+        display: block;
+        font-size: 0.6rem;
+        color: var(--muted, rgba(0, 240, 255, 0.5));
+        font-family: var(--font, 'Inter', sans-serif);
+        letter-spacing: 0.3px;
+    }
+
+/* ─── Light mode adjustments ─── */
+[data-theme="light"] .db-relation-spinner[b-ouilsqs483] {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 240, 255, 0.3);
+}
+
+[data-theme="light"] .spinner-label .label-main[b-ouilsqs483] {
+    color: #0a1a2a;
+}
+/* /Components/Layout/MainLayout.razor.rz.scp.css */
+
+
+
+#blazor-error-ui[b-852vqosu89] {
+    color-scheme: light only;
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss[b-852vqosu89] {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+/* /Components/Layout/ReconnectModal.razor.rz.scp.css */
+.components-reconnect-first-attempt-visible[b-7devbu3ufz],
+.components-reconnect-repeated-attempt-visible[b-7devbu3ufz],
+.components-reconnect-failed-visible[b-7devbu3ufz],
+.components-pause-visible[b-7devbu3ufz],
+.components-resume-failed-visible[b-7devbu3ufz],
+.components-rejoining-animation[b-7devbu3ufz] {
+    display: none;
+}
+
+#components-reconnect-modal.components-reconnect-show .components-reconnect-first-attempt-visible[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-show .components-rejoining-animation[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-paused .components-pause-visible[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-resume-failed .components-resume-failed-visible[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-retrying[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-retrying .components-reconnect-repeated-attempt-visible[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-retrying .components-rejoining-animation[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-failed[b-7devbu3ufz],
+#components-reconnect-modal.components-reconnect-failed .components-reconnect-failed-visible[b-7devbu3ufz] {
+    display: block;
+}
+
+
+#components-reconnect-modal[b-7devbu3ufz] {
+    background-color: white;
+    width: 20rem;
+    margin: 20vh auto;
+    padding: 2rem;
+    border: 0;
+    border-radius: 0.5rem;
+    box-shadow: 0 3px 6px 2px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transition: display 0.5s allow-discrete, overlay 0.5s allow-discrete;
+    animation: components-reconnect-modal-fadeOutOpacity-b-7devbu3ufz 0.5s both;
+    &[open]
+
+{
+    animation: components-reconnect-modal-slideUp-b-7devbu3ufz 1.5s cubic-bezier(.05, .89, .25, 1.02) 0.3s, components-reconnect-modal-fadeInOpacity-b-7devbu3ufz 0.5s ease-in-out 0.3s;
+    animation-fill-mode: both;
+}
+
+}
+
+#components-reconnect-modal[b-7devbu3ufz]::backdrop {
+    background-color: rgba(0, 0, 0, 0.4);
+    animation: components-reconnect-modal-fadeInOpacity-b-7devbu3ufz 0.5s ease-in-out;
+    opacity: 1;
+}
+
+@keyframes components-reconnect-modal-slideUp-b-7devbu3ufz {
+    0% {
+        transform: translateY(30px) scale(0.95);
+    }
+
+    100% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes components-reconnect-modal-fadeInOpacity-b-7devbu3ufz {
+    0% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+@keyframes components-reconnect-modal-fadeOutOpacity-b-7devbu3ufz {
+    0% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+.components-reconnect-container[b-7devbu3ufz] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+#components-reconnect-modal p[b-7devbu3ufz] {
+    margin: 0;
+    text-align: center;
+}
+
+#components-reconnect-modal button[b-7devbu3ufz] {
+    border: 0;
+    background-color: #6b9ed2;
+    color: white;
+    padding: 4px 24px;
+    border-radius: 4px;
+}
+
+    #components-reconnect-modal button:hover[b-7devbu3ufz] {
+        background-color: #3b6ea2;
+    }
+
+    #components-reconnect-modal button:active[b-7devbu3ufz] {
+        background-color: #6b9ed2;
+    }
+
+.components-rejoining-animation[b-7devbu3ufz] {
+    position: relative;
+    width: 80px;
+    height: 80px;
+}
+
+    .components-rejoining-animation div[b-7devbu3ufz] {
+        position: absolute;
+        border: 3px solid #0087ff;
+        opacity: 1;
+        border-radius: 50%;
+        animation: components-rejoining-animation-b-7devbu3ufz 1.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+    }
+
+        .components-rejoining-animation div:nth-child(2)[b-7devbu3ufz] {
+            animation-delay: -0.5s;
+        }
+
+@keyframes components-rejoining-animation-b-7devbu3ufz {
+    0% {
+        top: 40px;
+        left: 40px;
+        width: 0;
+        height: 0;
+        opacity: 0;
+    }
+
+    4.9% {
+        top: 40px;
+        left: 40px;
+        width: 0;
+        height: 0;
+        opacity: 0;
+    }
+
+    5% {
+        top: 40px;
+        left: 40px;
+        width: 0;
+        height: 0;
+        opacity: 1;
+    }
+
+    100% {
+        top: 0px;
+        left: 0px;
+        width: 80px;
+        height: 80px;
+        opacity: 0;
+    }
+}

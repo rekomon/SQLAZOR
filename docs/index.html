@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <meta name="description" content="SQLAZOR turns a SQL Server schema into a production-ready Blazor admin with an AI copilot: streaming chat, smart lookups, charts from real query results, read-only SQL, and regeneration-safe code generation.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="SQLAZOR — SQL Server to Blazor with an AI copilot">
+    <meta property="og:description" content="Reverse-engineer SQL Server into a downloadable Blazor admin, with smart lookups and an AI assistant that stays grounded in your schema.">
+    <meta property="og:image" content="assets/img/landing/teaser-frame.png">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="assets/css/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/css/fonts.css">
+    
+    
+    <link rel="stylesheet" href="assets/css/mudblazor.min.css">
+    <link rel="stylesheet" href="assets/css/core.css">
+    <link rel="stylesheet" href="assets/css/app.css">
+    <link rel="stylesheet" href="assets/css/scoped.css">
+    <link rel="stylesheet" href="assets/css/export.css">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <title>SQLAZOR — SQL to Blazor with an AI copilot</title></head>
+
+<body><div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+
+    <div class="particles" id="particles"></div>
+
+    <style>
+::-webkit-scrollbar {width: 8px;height: 8px;z-index: 1;}
+::-webkit-scrollbar-track {background: transparent;}
+::-webkit-scrollbar-thumb {background: #c4c4c4;border-radius: 1px;}
+::-webkit-scrollbar-thumb:hover {background: #a6a6a6;}
+html, body * {scrollbar-color: #c4c4c4 transparent;scrollbar-width: thin;}
+</style>
+<style>
+    .mud-chart-serie:hover {
+        filter: url(#lighten);
+    }
+
+    .mud-chart-serie-hovered 
+    {
+        filter: url(#lighten);
+    }
+</style>
+
+<style class='mud-theme-provider'>
+:root{
+--mud-palette-black: rgba(39,39,47,1);
+--mud-palette-white: rgba(255,255,255,1);
+--mud-palette-primary: rgba(0,240,255,1);
+--mud-palette-primary-rgb: 0,240,255;
+--mud-palette-primary-text: rgba(255,255,255,1);
+--mud-palette-primary-darken: rgb(0,200,214);
+--mud-palette-primary-lighten: rgb(36,240,255);
+--mud-palette-primary-hover: rgba(0,240,255,0.058823529411764705);
+--mud-palette-secondary: rgba(255,0,255,1);
+--mud-palette-secondary-rgb: 255,0,255;
+--mud-palette-secondary-text: rgba(255,255,255,1);
+--mud-palette-secondary-darken: rgb(214,0,214);
+--mud-palette-secondary-lighten: rgb(255,36,255);
+--mud-palette-secondary-hover: rgba(255,0,255,0.058823529411764705);
+--mud-palette-tertiary: rgba(255,255,0,1);
+--mud-palette-tertiary-rgb: 255,255,0;
+--mud-palette-tertiary-text: rgba(255,255,255,1);
+--mud-palette-tertiary-darken: rgb(214,214,0);
+--mud-palette-tertiary-lighten: rgb(255,255,36);
+--mud-palette-tertiary-hover: rgba(255,255,0,0.058823529411764705);
+--mud-palette-info: rgba(50,153,255,1);
+--mud-palette-info-rgb: 50,153,255;
+--mud-palette-info-text: rgba(255,255,255,1);
+--mud-palette-info-darken: rgb(10,133,255);
+--mud-palette-info-lighten: rgb(92,173,255);
+--mud-palette-info-hover: rgba(50,153,255,0.058823529411764705);
+--mud-palette-success: rgba(11,186,131,1);
+--mud-palette-success-rgb: 11,186,131;
+--mud-palette-success-text: rgba(255,255,255,1);
+--mud-palette-success-darken: rgb(9,154,108);
+--mud-palette-success-lighten: rgb(13,222,156);
+--mud-palette-success-hover: rgba(11,186,131,0.058823529411764705);
+--mud-palette-warning: rgba(255,168,0,1);
+--mud-palette-warning-rgb: 255,168,0;
+--mud-palette-warning-text: rgba(255,255,255,1);
+--mud-palette-warning-darken: rgb(214,143,0);
+--mud-palette-warning-lighten: rgb(255,182,36);
+--mud-palette-warning-hover: rgba(255,168,0,0.058823529411764705);
+--mud-palette-error: rgba(246,78,98,1);
+--mud-palette-error-rgb: 246,78,98;
+--mud-palette-error-text: rgba(255,255,255,1);
+--mud-palette-error-darken: rgb(244,47,70);
+--mud-palette-error-lighten: rgb(248,119,134);
+--mud-palette-error-hover: rgba(246,78,98,0.058823529411764705);
+--mud-palette-dark: rgba(39,39,47,1);
+--mud-palette-dark-rgb: 39,39,47;
+--mud-palette-dark-text: rgba(255,255,255,1);
+--mud-palette-dark-darken: rgb(23,23,28);
+--mud-palette-dark-lighten: rgb(56,56,67);
+--mud-palette-dark-hover: rgba(39,39,47,0.058823529411764705);
+--mud-palette-text-primary: rgba(224,240,255,1);
+--mud-palette-text-primary-rgb: 224,240,255;
+--mud-palette-text-secondary: rgba(200,230,255,0.8);
+--mud-palette-text-secondary-rgb: 200,230,255;
+--mud-palette-text-disabled: rgba(255,255,255,0.2);
+--mud-palette-text-disabled-rgb: 255,255,255;
+--mud-palette-action-default: rgba(173,173,177,1);
+--mud-palette-action-default-hover: rgba(173,173,177,0.058823529411764705);
+--mud-palette-action-disabled: rgba(255,255,255,0.25882352941176473);
+--mud-palette-action-disabled-background: rgba(255,255,255,0.11764705882352941);
+--mud-palette-surface: rgba(0,20,30,0.6980392156862745);
+--mud-palette-surface-rgb: 0,20,30;
+--mud-palette-background: rgba(10,10,15,1);
+--mud-palette-background-gray: rgba(39,39,47,1);
+--mud-palette-drawer-background: rgba(0,20,30,0.6980392156862745);
+--mud-palette-drawer-text: rgba(255,255,255,0.4980392156862745);
+--mud-palette-drawer-icon: rgba(255,255,255,0.4980392156862745);
+--mud-palette-appbar-background: rgba(0,20,30,0.6980392156862745);
+--mud-palette-appbar-text: rgba(255,255,255,0.6980392156862745);
+--mud-palette-lines-default: rgba(255,255,255,0.11764705882352941);
+--mud-palette-lines-inputs: rgba(255,255,255,0.2980392156862745);
+--mud-palette-table-lines: rgba(255,255,255,0.11764705882352941);
+--mud-palette-table-striped: rgba(255,255,255,0.2);
+--mud-palette-table-hover: rgba(0,0,0,0.0392156862745098);
+--mud-palette-divider: rgba(255,255,255,0.11764705882352941);
+--mud-palette-divider-rgb: 255,255,255;
+--mud-palette-divider-light: rgba(255,255,255,0.058823529411764705);
+--mud-palette-skeleton: rgba(255,255,255,0.10980392156862745);
+--mud-palette-gray-default: #9E9E9E;
+--mud-palette-gray-light: #BDBDBD;
+--mud-palette-gray-lighter: #E0E0E0;
+--mud-palette-gray-dark: #757575;
+--mud-palette-gray-darker: #616161;
+--mud-palette-overlay-dark: rgba(33,33,33,0.4980392156862745);
+--mud-palette-overlay-light: rgba(255,255,255,0.4980392156862745);
+--mud-palette-border-opacity: 1;
+--mud-ripple-color: var(--mud-palette-text-primary);
+--mud-ripple-opacity: 0.1;
+--mud-ripple-opacity-secondary: 0.2;
+--mud-elevation-0: none;
+--mud-elevation-1: 0px 2px 1px -1px rgba(0,0,0,0.2),0px 1px 1px 0px rgba(0,0,0,0.14),0px 1px 3px 0px rgba(0,0,0,0.12);
+--mud-elevation-2: 0px 3px 1px -2px rgba(0,0,0,0.2),0px 2px 2px 0px rgba(0,0,0,0.14),0px 1px 5px 0px rgba(0,0,0,0.12);
+--mud-elevation-3: 0px 3px 3px -2px rgba(0,0,0,0.2),0px 3px 4px 0px rgba(0,0,0,0.14),0px 1px 8px 0px rgba(0,0,0,0.12);
+--mud-elevation-4: 0px 2px 4px -1px rgba(0,0,0,0.2),0px 4px 5px 0px rgba(0,0,0,0.14),0px 1px 10px 0px rgba(0,0,0,0.12);
+--mud-elevation-5: 0px 3px 5px -1px rgba(0,0,0,0.2),0px 5px 8px 0px rgba(0,0,0,0.14),0px 1px 14px 0px rgba(0,0,0,0.12);
+--mud-elevation-6: 0px 3px 5px -1px rgba(0,0,0,0.2),0px 6px 10px 0px rgba(0,0,0,0.14),0px 1px 18px 0px rgba(0,0,0,0.12);
+--mud-elevation-7: 0px 4px 5px -2px rgba(0,0,0,0.2),0px 7px 10px 1px rgba(0,0,0,0.14),0px 2px 16px 1px rgba(0,0,0,0.12);
+--mud-elevation-8: 0px 5px 5px -3px rgba(0,0,0,0.2),0px 8px 10px 1px rgba(0,0,0,0.14),0px 3px 14px 2px rgba(0,0,0,0.12);
+--mud-elevation-9: 0px 5px 6px -3px rgba(0,0,0,0.2),0px 9px 12px 1px rgba(0,0,0,0.14),0px 3px 16px 2px rgba(0,0,0,0.12);
+--mud-elevation-10: 0px 6px 6px -3px rgba(0,0,0,0.2),0px 10px 14px 1px rgba(0,0,0,0.14),0px 4px 18px 3px rgba(0,0,0,0.12);
+--mud-elevation-11: 0px 6px 7px -4px rgba(0,0,0,0.2),0px 11px 15px 1px rgba(0,0,0,0.14),0px 4px 20px 3px rgba(0,0,0,0.12);
+--mud-elevation-12: 0px 7px 8px -4px rgba(0,0,0,0.2),0px 12px 17px 2px rgba(0,0,0,0.14),0px 5px 22px 4px rgba(0,0,0,0.12);
+--mud-elevation-13: 0px 7px 8px -4px rgba(0,0,0,0.2),0px 13px 19px 2px rgba(0,0,0,0.14),0px 5px 24px 4px rgba(0,0,0,0.12);
+--mud-elevation-14: 0px 7px 9px -4px rgba(0,0,0,0.2),0px 14px 21px 2px rgba(0,0,0,0.14),0px 5px 26px 4px rgba(0,0,0,0.12);
+--mud-elevation-15: 0px 8px 9px -5px rgba(0,0,0,0.2),0px 15px 22px 2px rgba(0,0,0,0.14),0px 6px 28px 5px rgba(0,0,0,0.12);
+--mud-elevation-16: 0px 8px 10px -5px rgba(0,0,0,0.2),0px 16px 24px 2px rgba(0,0,0,0.14),0px 6px 30px 5px rgba(0,0,0,0.12);
+--mud-elevation-17: 0px 8px 11px -5px rgba(0,0,0,0.2),0px 17px 26px 2px rgba(0,0,0,0.14),0px 6px 32px 5px rgba(0,0,0,0.12);
+--mud-elevation-18: 0px 9px 11px -5px rgba(0,0,0,0.2),0px 18px 28px 2px rgba(0,0,0,0.14),0px 7px 34px 6px rgba(0,0,0,0.12);
+--mud-elevation-19: 0px 9px 12px -6px rgba(0,0,0,0.2),0px 19px 29px 2px rgba(0,0,0,0.14),0px 7px 36px 6px rgba(0,0,0,0.12);
+--mud-elevation-20: 0px 10px 13px -6px rgba(0,0,0,0.2),0px 20px 31px 3px rgba(0,0,0,0.14),0px 8px 38px 7px rgba(0,0,0,0.12);
+--mud-elevation-21: 0px 10px 13px -6px rgba(0,0,0,0.2),0px 21px 33px 3px rgba(0,0,0,0.14),0px 8px 40px 7px rgba(0,0,0,0.12);
+--mud-elevation-22: 0px 10px 14px -6px rgba(0,0,0,0.2),0px 22px 35px 3px rgba(0,0,0,0.14),0px 8px 42px 7px rgba(0,0,0,0.12);
+--mud-elevation-23: 0px 11px 14px -7px rgba(0,0,0,0.2),0px 23px 36px 3px rgba(0,0,0,0.14),0px 9px 44px 8px rgba(0,0,0,0.12);
+--mud-elevation-24: 0px 11px 15px -7px rgba(0,0,0,0.2),0px 24px 38px 3px rgba(0,0,0,0.14),0px 9px 46px 8px rgba(0,0,0,0.12);
+--mud-elevation-25: 0 5px 5px -3px rgba(0,0,0,.06), 0 8px 10px 1px rgba(0,0,0,.042), 0 3px 14px 2px rgba(0,0,0,.036);
+--mud-default-borderradius: 4px;
+--mud-drawer-width-left: 240px;
+--mud-drawer-width-right: 240px;
+--mud-drawer-width-mini-left: 56px;
+--mud-drawer-width-mini-right: 56px;
+--mud-appbar-height: 64px;
+--mud-typography-default-family: Orbitron, monospace;
+--mud-typography-default-size: .875rem;
+--mud-typography-default-weight: 400;
+--mud-typography-default-lineheight: 1.43;
+--mud-typography-default-letterspacing: .01071em;
+--mud-typography-default-text-transform: none;
+--mud-typography-h1-family: Orbitron, monospace;
+--mud-typography-h1-size: 6rem;
+--mud-typography-h1-weight: 300;
+--mud-typography-h1-lineheight: 1.167;
+--mud-typography-h1-letterspacing: -.01562em;
+--mud-typography-h1-text-transform: none;
+--mud-typography-h2-family: Orbitron, monospace;
+--mud-typography-h2-size: 3.75rem;
+--mud-typography-h2-weight: 300;
+--mud-typography-h2-lineheight: 1.2;
+--mud-typography-h2-letterspacing: -.00833em;
+--mud-typography-h2-text-transform: none;
+--mud-typography-h3-family: Orbitron, monospace;
+--mud-typography-h3-size: 3rem;
+--mud-typography-h3-weight: 400;
+--mud-typography-h3-lineheight: 1.167;
+--mud-typography-h3-letterspacing: 0;
+--mud-typography-h3-text-transform: none;
+--mud-typography-h4-family: Orbitron, monospace;
+--mud-typography-h4-size: 2.125rem;
+--mud-typography-h4-weight: 400;
+--mud-typography-h4-lineheight: 1.235;
+--mud-typography-h4-letterspacing: .00735em;
+--mud-typography-h4-text-transform: none;
+--mud-typography-h5-family: Orbitron, monospace;
+--mud-typography-h5-size: 1.5rem;
+--mud-typography-h5-weight: 400;
+--mud-typography-h5-lineheight: 1.334;
+--mud-typography-h5-letterspacing: 0;
+--mud-typography-h5-text-transform: none;
+--mud-typography-h6-family: Orbitron, monospace;
+--mud-typography-h6-size: 1.25rem;
+--mud-typography-h6-weight: 500;
+--mud-typography-h6-lineheight: 1.6;
+--mud-typography-h6-letterspacing: .0075em;
+--mud-typography-h6-text-transform: none;
+--mud-typography-subtitle1-family: Orbitron, monospace;
+--mud-typography-subtitle1-size: 1rem;
+--mud-typography-subtitle1-weight: 400;
+--mud-typography-subtitle1-lineheight: 1.75;
+--mud-typography-subtitle1-letterspacing: .00938em;
+--mud-typography-subtitle1-text-transform: none;
+--mud-typography-subtitle2-family: Orbitron, monospace;
+--mud-typography-subtitle2-size: .875rem;
+--mud-typography-subtitle2-weight: 500;
+--mud-typography-subtitle2-lineheight: 1.57;
+--mud-typography-subtitle2-letterspacing: .00714em;
+--mud-typography-subtitle2-text-transform: none;
+--mud-typography-body1-family: Orbitron, monospace;
+--mud-typography-body1-size: 1rem;
+--mud-typography-body1-weight: 400;
+--mud-typography-body1-lineheight: 1.5;
+--mud-typography-body1-letterspacing: .00938em;
+--mud-typography-body1-text-transform: none;
+--mud-typography-body2-family: Orbitron, monospace;
+--mud-typography-body2-size: .875rem;
+--mud-typography-body2-weight: 400;
+--mud-typography-body2-lineheight: 1.43;
+--mud-typography-body2-letterspacing: .01071em;
+--mud-typography-body2-text-transform: none;
+--mud-typography-button-family: Orbitron, monospace;
+--mud-typography-button-size: .875rem;
+--mud-typography-button-weight: 500;
+--mud-typography-button-lineheight: 1.75;
+--mud-typography-button-letterspacing: .02857em;
+--mud-typography-button-text-transform: uppercase;
+--mud-typography-caption-family: Orbitron, monospace;
+--mud-typography-caption-size: .75rem;
+--mud-typography-caption-weight: 400;
+--mud-typography-caption-lineheight: 1.66;
+--mud-typography-caption-letterspacing: .03333em;
+--mud-typography-caption-text-transform: none;
+--mud-typography-overline-family: Orbitron, monospace;
+--mud-typography-overline-size: .75rem;
+--mud-typography-overline-weight: 400;
+--mud-typography-overline-lineheight: 2.66;
+--mud-typography-overline-letterspacing: .08333em;
+--mud-typography-overline-text-transform: none;
+--mud-zindex-drawer: 1100;
+--mud-zindex-appbar: 1300;
+--mud-zindex-dialog: 1400;
+--mud-zindex-popover: 1200;
+--mud-zindex-snackbar: 1500;
+--mud-zindex-tooltip: 1600;
+--mud-native-html-color-scheme: dark;
+}
+</style>
+
+<div class="mud-popover-provider"></div>
+
+<div id="mud-snackbar-container" class="mud-snackbar-location-bottom-right"></div>
+
+<div class="mud-layout" style=""><div class="d-flex flex-column vh-100" style="position:relative; z-index:2;" b-852vqosu89><nav class="navbar navbar-expand-lg fixed-top" style="flex-shrink:0;"><div class="container"><div class="navbar-brand"><span class="brand-icon">✨</span>
+            <span>SQLAZOR</span></div>
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"><i class="bi bi-list" style="font-size: 2rem; color: var(--cu-neon-cyan)"></i></button>
+
+
+        <div class="navbar-collapse collapse" id="mainNav"><ul class="navbar-nav mb-lg-0 me-auto mb-2"><li class="nav-item"><a class="nav-link" href="#features"><i class="bi bi-house-door"></i>Features</a></li>
+                <li class="nav-item"><a class="nav-link" href="#workflow"><i class="bi bi-people"></i>Workflow</a></li>
+                <li class="nav-item"><a class="nav-link" href="#lookups"><i class="bi bi-search"></i>Lookups</a></li>
+                <li class="nav-item"><a class="nav-link" href="#showcase"><i class="bi bi-stars"></i>AI Copilot</a></li>
+               
+                <li class="nav-item"><a class="nav-link" href="https://github.com/rekomon/SQLAZOR" target="_blank" rel="noopener"><i class="bi bi-shield-check"></i>Get Started</a></li></ul>
+            <div class="d-flex align-items-center gap-2"><button class="theme-btn" title="Toggle theme"><span class="sun-icon"><i class="bi bi-sun"></i></span>
+                    <span class="moon-icon"><i class="bi bi-moon"></i></span></button></div></div></div></nav>
+
+    <div class="main-scroll-wrapper" id="mainScrollWrapper" b-852vqosu89><div class="main-scroll-content" id="mainScrollContent" b-852vqosu89>
+
+
+<section class="hero" id="hero"><div class="container"><div class="row align-items-center g-5"><div class="col-lg-6"><div class="hero-badge"><i class="bi bi-stars me-1"></i> v1.2 · Lookup‑aware Blazor admin
+                </div>
+                <h1>SQL → Blazor<br>with an AI copilot</h1>
+                <p class="lead">
+                    Reverse‑engineer SQL Server into a production‑ready Blazor admin — with searchable
+                    pickers for every foreign key. Then ask the built‑in assistant to explain the schema,
+                    chart real query results, run read‑only SQL, and edit generated files with a diff preview.
+                </p>
+                <div class="d-flex btn-group mt-4 flex-wrap gap-3"><a href="https://github.com/rekomon/SQLAZOR" target="_blank" rel="noopener" class="btn btn-cyber"><i class="bi bi-download me-2"></i>Get Started Now
+                    </a>
+                    <a href="#showcase" class="btn btn-outline-cyber"><i class="bi bi-play-circle me-2"></i>See the AI in Action
+                    </a></div>
+                <div class="hero-stats"><div class="stat-item"><span class="number">3</span>
+                        <span class="label">AI Providers</span></div>
+                    <div class="stat-item"><span class="number">4</span>
+                        <span class="label">Export Formats</span></div>
+                    <div class="stat-item"><span class="number">100%</span>
+                        <span class="label">Local Chat History</span></div></div></div>
+            <div class="col-lg-6"><div class="hero-shot"><div class="hero-shot-bar"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="hero-shot-title">AI assistant · FixFlow</span>
+                        <span class="hero-shot-tag">Live capture</span></div>
+                    <a href="assets/img/landing/ai-chart.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-chart-hero.png" alt="AI assistant answering a schema question with an interactive bar chart and a read-only SQL query"></a>
+                    <div class="glow-line"></div></div></div></div></div></section>
+
+<section class="features-section" id="features"><div class="container"><div class="section-header"><div class="badge-cyber"><i class="bi bi-stars me-1"></i> What's new</div>
+            <h2>Your database, with an AI copilot</h2>
+            <p>Ask, chart, run, edit, and validate without leaving the generator — every reply is grounded in the schema you actually connected to.</p></div>
+        <div class="row g-4"><div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-chat-square-text"></i></div>
+                    <h5>Ask in plain English</h5>
+                    <p>Get schema tours, relationship maps, and finished T‑SQL or LINQ queries. Replies use real Markdown headings, tables, and callouts — not raw text.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-bar-chart-line"></i></div>
+                    <h5>Charts from real results</h5>
+                    <p>Any result with two or more columns becomes a bar, line, or pie chart in one click — drawn from the rows your query returned, never invented numbers.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-terminal"></i></div>
+                    <h5>Read‑only SQL runner</h5>
+                    <p>Run SELECT and WITH statements straight from a reply. Hard limits keep it safe: 200 rows, a 15‑second timeout, and no statements that modify data.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-clock-history"></i></div>
+                    <h5>Conversations that persist</h5>
+                    <p>Search, pin, rename, and reload saved sessions as local JSON. Export any conversation to Markdown, HTML, JSON, or a ZIP bundle.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-cpu"></i></div>
+                    <h5>Ollama, OpenRouter or DeepSeek</h5>
+                    <p>Run against your own Ollama models, OpenRouter's curated free models, or DeepSeek's cloud API. Keys stay in %LOCALAPPDATA%; cloud calls receive schema names, never row data.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-translate"></i></div>
+                    <h5>Arabic‑first layout</h5>
+                    <p>Ask in Arabic and the bubble flips to right‑to‑left — mirrored alignment and readable tables, while SQL and code stay left‑to‑right.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-pencil-square"></i></div>
+                    <h5>AI edits with diff preview</h5>
+                    <p>Attach up to five generated files, describe a targeted change, and review an exact line‑by‑line diff before applying it. Validation re‑runs automatically.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-shield-check"></i></div>
+                    <h5>Two‑layer validation</h5>
+                    <p>Roslyn catches parse errors in C#, Razor code blocks, JSON, and XML instantly. Deep compile runs dotnet build in a temp copy to catch missing types and wiring.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-bookmark-star"></i></div>
+                    <h5>Saved generation profiles</h5>
+                    <p>Capture table selections and options per database, then re‑apply them later — or export the profile and import it on another machine.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-window-stack"></i></div>
+                    <h5>Preview before you build</h5>
+                    <p>Render the generated docs page in a sandboxed iframe and browse every output file with inline code and a ZIP download.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-arrow-repeat"></i></div>
+                    <h5>Regeneration‑safe output</h5>
+                    <p>Manifests and diffs keep your manual edits intact when the schema changes and you generate again. Only what changed is rewritten.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-lightbulb"></i></div>
+                    <h5>AI dashboard insights</h5>
+                    <p>Ask the model to propose KPIs and cards for the generated dashboard, accept the ones you like, and they flow straight into the app.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-search"></i></div>
+                    <h5>Smart lookups</h5>
+                    <p>Foreign keys become searchable pickers automatically. AI or a local distinct scan can turn text and categorical columns into lists — and scanned values never leave your machine.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-ui-checks-grid"></i></div>
+                    <h5>Search inside every dropdown</h5>
+                    <p>Generated forms ship <code>MudAutocomplete</code> for foreign keys, backed by a cached search method — type a letter instead of scrolling a thousand rows.</p></div></div>
+            <div class="col-md-6 col-lg-4"><div class="feature-card"><div class="icon"><i class="bi bi-tag"></i></div>
+                    <h5>Readable labels, not raw keys</h5>
+                    <p>Lookup pickers display a human name while binding the real key, so generated pages read like the data your users already know.</p></div></div></div></div></section>
+
+<section class="workflow-section" id="workflow"><div class="container"><div class="section-header"><div class="badge-cyber"><i class="bi bi-diagram-3 me-1"></i> Workflow</div>
+            <h2>From schema to shipped app</h2>
+            <p>Four steps — and the AI joins you for the interesting ones.</p></div>
+        <div class="row g-4"><div class="col-md-6 col-lg-3"><div class="workflow-step step-compact"><div class="step-number">01</div>
+                    <div class="step-content"><h5>Connect &amp; scan</h5>
+                        <p>Point SqLazor at SQL Server with Windows or SQL auth. One scan maps tables, views, keys, and implicit relationships.</p>
+                        <div class="text-muted small mt-2"><i class="bi bi-check-circle-fill me-1" style="color:var(--neon-cyan);"></i> SQL Server 2016+</div></div></div></div>
+            <div class="col-md-6 col-lg-3"><div class="workflow-step step-compact"><div class="step-number">02</div>
+                    <div class="step-content"><h5>Ask the AI</h5>
+                        <p>Get a tour, a relationship map, or a query in plain English. Run read‑only SQL and chart the result inside the same reply.</p>
+                        <div class="text-muted small mt-2"><i class="bi bi-check-circle-fill me-1" style="color:var(--neon-cyan);"></i> Ollama, OpenRouter or DeepSeek</div></div></div></div>
+            <div class="col-md-6 col-lg-3"><div class="workflow-step step-compact"><div class="step-number">03</div>
+                    <div class="step-content"><h5>Configure &amp; generate</h5>
+                        <p>Pick tables, review the AI and scanned lookup suggestions, choose a page style, and save the choices as a profile. Then generate Blazor pages, DTOs, endpoints, and docs.</p>
+                        <div class="text-muted small mt-2"><i class="bi bi-check-circle-fill me-1" style="color:var(--neon-cyan);"></i> Plain HTML · MudBlazor · Tabler</div></div></div></div>
+            <div class="col-md-6 col-lg-3"><div class="workflow-step step-compact"><div class="step-number">04</div>
+                    <div class="step-content"><h5>Review &amp; iterate</h5>
+                        <p>Validate, deep‑compile, and preview the docs. Then let AI edit files with a diff preview and regenerate without losing your changes.</p>
+                        <div class="text-muted small mt-2"><i class="bi bi-check-circle-fill me-1" style="color:var(--neon-cyan);"></i> Regeneration‑safe manifest</div></div></div></div></div></div></section>
+
+<section class="showcase-section" id="lookups"><div class="container"><div class="section-header"><div class="badge-cyber"><i class="bi bi-search me-1"></i> New · Smart lookups</div>
+            <h2>Dropdowns that know your data</h2>
+            <p>Foreign keys become searchable pickers automatically. AI can infer text-column mappings, and a local scan turns categorical columns into fixed lists — without ever sending a value to the model.</p></div>
+        <div class="ai-gallery"><div class="gallery-col"><article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Local distinct scan</span>
+                        <span class="shot-badge">Stays on your machine</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-lookups.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-lookups.png" alt="Smart lookups panel listing five fixed-list suggestions scanned from the FixFlow database, each with editable choices and an accepted checkbox" loading="lazy"></a></div>
+                    <p class="shot-caption">One read-only scan found five categorical columns in FixFlow. Every suggestion is editable, and Accept all / Reject all apply in bulk.</p></article>
+                <article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Searchable foreign keys</span>
+                        <span class="shot-badge">Generated form</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-lookup-form.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-lookup-form.png" alt="Generated Blazor Ticket form with the Customer autocomplete showing real customer names from the FixFlow database" loading="lazy"></a></div>
+                    <p class="shot-caption">Customer, Technician, Branch, and Tenant ship as <code>MudAutocomplete</code> pickers backed by a cached search method — type a letter, get real names.</p></article></div>
+            <div class="gallery-col"><article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Fixed-choice columns</span>
+                        <span class="shot-badge">Generated form</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-lookup-status.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-lookup-status.png" alt="Generated Ticket form with the Status dropdown open on Completed, InProgress, Pending, and Ready" loading="lazy"></a></div>
+                    <p class="shot-caption">The scanned Status values become a <code>MudSelect</code> — or a fixed <code>&lt;select&gt;</code> in the Plain and Tabler page styles.</p></article>
+                <div class="feature-card"><div class="icon"><i class="bi bi-diagram-2"></i></div>
+                    <h5>AI suggests, you decide</h5>
+                    <p>The planner rejects mappings to unselected tables and explains why. Nothing is applied until you tick it.</p></div>
+                <div class="feature-card"><div class="icon"><i class="bi bi-shield-lock"></i></div>
+                    <h5>Values never leave the page</h5>
+                    <p>The scan runs <code>SELECT DISTINCT TOP (11)</code> locally. Cloud providers only ever see table and column names.</p></div>
+                <div class="feature-card"><div class="icon"><i class="bi bi-lightning-charge"></i></div>
+                    <h5>Top 50, cached 60s</h5>
+                    <p>Search uses an escaped <code>LIKE</code> over text columns with a bounded per-service cache — no full-table dumps.</p></div></div></div></div></section>
+
+<section class="showcase-section" id="showcase"><div class="container"><div class="section-header"><div class="badge-cyber"><i class="bi bi-camera me-1"></i> Showcase</div>
+            <h2>Inside the AI copilot</h2>
+            <p>Real captures from a live FixFlow SQL Server schema — no mockups, no invented numbers.</p></div>
+        <div class="ai-gallery"><div class="gallery-col"><article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Interactive charts + SQL</span>
+                        <span class="shot-badge">Live capture</span></div>
+                    <div class="shot-body cap"><a href="assets/img/landing/ai-chart.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-chart.png" alt="AI assistant charting columns per table with an interactive bar chart and a read-only SQL query" loading="lazy"></a></div>
+                    <p class="shot-caption">A bar chart drawn from the rows a read‑only query returned — with Table/Chart toggles and a Run query button in the reply.</p></article>
+
+                <article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Arabic responses</span>
+                        <span class="shot-badge">RTL</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-arabic.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-arabic.png" alt="An Arabic answer laid out right-to-left with a readable schema table" loading="lazy"></a></div>
+                    <p class="shot-caption">Ask in Arabic and the bubble flips to right‑to‑left — mirrored alignment, readable tables, code still LTR.</p></article>
+
+                <article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Three providers, one chat</span>
+                        <span class="shot-badge">Local + cloud</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-providers.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-providers.png" alt="Provider settings showing DeepSeek endpoint, model, and API key stored locally" loading="lazy"></a></div>
+                    <p class="shot-caption">Switch between local Ollama, OpenRouter's free models, and DeepSeek's cloud API. The key stays in %LOCALAPPDATA% — only schema text leaves the machine.</p></article></div>
+
+            <div class="gallery-col"><article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Generated project preview</span>
+                        <span class="shot-badge">Live capture</span></div>
+                    <div class="shot-body cap"><a href="assets/img/landing/ai-preview.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-preview.png" alt="Result preview with the generated file tree and inline code" loading="lazy"></a></div>
+                    <p class="shot-caption">Every generated file is browsable with inline code before you download the ZIP.</p></article>
+
+                <article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Markdown relationships</span>
+                        <span class="shot-badge">Live capture</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-relationships.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-relationships.png" alt="Foreign-key relationships rendered as a native Markdown table inside the chat" loading="lazy"></a></div>
+                    <p class="shot-caption">Relationship maps arrive as Markdown tables that render natively — sortable reading, not a wall of text.</p></article>
+
+                <article class="shot-card"><div class="shot-header"><div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Two‑layer validation</span>
+                        <span class="shot-badge">Roslyn + build</span></div>
+                    <div class="shot-body"><a href="assets/img/landing/ai-validation.png" target="_blank" rel="noopener" title="Open the full-size capture"><img src="assets/img/landing/ai-validation.png" alt="Generated code check reporting no syntax errors, followed by the deep compile option" loading="lazy"></a></div>
+                    <p class="shot-caption">183 files parsed with no syntax errors — then an optional deep dotnet build catches missing types and wiring.</p></article></div></div></div></section>
+
+            <div style="height:24px;" b-852vqosu89></div>
+                <footer class="footer fixed-bottom"><div class="container"><div class="row align-items-center gy-3"><div class="col-md-4"><div class="footer-brand"><span class="brand-icon">✦</span>
+                    <span>SqLazor</span></div>
+                <p class="text-muted small mt-1" style="font-size:0.75rem;">
+                    &copy; 2026 SqLazor. All rights reserved.
+                </p></div>
+            <div class="col-md-4 text-center"><div class="d-flex justify-content-center flex-wrap gap-3"><a href="#features">Features</a>
+                    <a href="#workflow">Workflow</a>
+                    <a href="#lookups">Lookups</a>
+                    <a href="#showcase">AI Copilot</a>
+                    <a href="https://github.com/rekomon/SQLAZOR" target="_blank" rel="noopener">Generate Now</a></div></div>
+            <div class="col-md-4 text-md-end"><div class="social-links d-flex justify-content-md-end justify-content-center gap-2"><a href="https://github.com/rekomon/SQLAZOR" target="_blank" rel="noopener" aria-label="SQLAZOR on GitHub"><i class="bi bi-github"></i></a>
+                    <a href="#" aria-label="Twitter"><i class="bi bi-twitter-x"></i></a>
+                    <a href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
+                    <a href="#" aria-label="Discord"><i class="bi bi-discord"></i></a></div></div></div></div></footer></div></div></div></div>
+            <script src="assets/js/landing.js" defer></script>
+
+</body></html>
