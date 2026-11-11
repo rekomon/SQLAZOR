@@ -1,5 +1,5 @@
 ﻿# SQLAZOR
-
+[![Watch the video](https://youtube.com)](https://www.youtube.com/watch?v=9B8MecXTcjY)
 A Blazor Server workbench that reverse-engineers SQL Server into a runnable
 Blazor admin — then lets an AI copilot explain, chart, query, and edit what it
 generated.
