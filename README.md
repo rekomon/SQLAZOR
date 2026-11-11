@@ -1,8 +1,4 @@
 ﻿# SQLAZOR
-
-[![Watch SQLAZOR Demo](https://youtube.com)](https://www.youtube.com/watch?v=9sp0S6Zt-i8)
-
-
 A Blazor Server workbench that reverse-engineers SQL Server into a runnable
 Blazor admin — then lets an AI copilot explain, chart, query, and edit what it
 generated.
@@ -28,6 +24,9 @@ keys, unique indexes, and FK delete behavior. From that schema it can generate:
 - **Everything else** — stored-procedure executors, AI naming and XML docs,
   implicit relationship detection, generation profiles, deep compile validation,
   and the AI assistant described below.
+
+https://github.com/user-attachments/assets/46d13139-07d2-4ca6-a317-048d5fd8009a
+
 
 ## What's new (v1.2)
 
