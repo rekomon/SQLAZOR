@@ -6,45 +6,57 @@ using System.Text.Json;
 
 namespace SQLAZOR.Services;
 
-public sealed class OllamaService : IOllamaService
+public sealed class OllamaService : IChatProvider
 {
     private readonly HttpClient _http;
-
-    private const string SystemPromptTemplate =
-        "You are a helpful assistant embedded in a SQL Server code-generation tool called SQLAZOR. " +
-        "You answer questions about the database schema below, explain relationships, and can write T-SQL " +
-        "or C# / EF Core LINQ queries when asked. DbSet property names are the pluralized entity class names. " +
-        "IMPORTANT: whenever you write a T-SQL query, put it in a code fence tagged 'sql' (```sql ... ```) - " +
-        "the user has a 'Run query' button that appears on sql-tagged blocks and executes them directly against " +
-        "their database (read-only SELECT/WITH statements only), so getting the tag right matters. " +
-        "Reply in the same language the user writes in (Arabic or English). Be concise and use code blocks for code.\n\n" +
-        "--- SCHEMA CONTEXT ---\n{0}\n--- END SCHEMA CONTEXT ---";
 
     public OllamaService(HttpClient http)
     {
         _http = http;
     }
 
+    public string Id => AiProviderCatalog.Ollama;
+
     private static List<object> BuildChatMessages(string schemaContext, IReadOnlyList<ChatMessage> history)
     {
         var messages = new List<object>
         {
-            new { role = "system", content = string.Format(SystemPromptTemplate, schemaContext) }
+            new { role = "system", content = ChatSystemPrompt.Build(schemaContext) }
         };
-        messages.AddRange(history.Select(m => (object)new { role = m.Role, content = m.Content }));
+        messages.AddRange(history.Select(m => (object)BuildChatMessage(m)));
         return messages;
+    }
+
+    private static Dictionary<string, object> BuildChatMessage(ChatMessage message)
+    {
+        var entry = new Dictionary<string, object>
+        {
+            ["role"] = message.Role,
+            ["content"] = message.Content
+        };
+
+        // Ollama takes raw base64 (no data: prefix) in an "images" array per message.
+        var images = message.Attachments
+            .Where(a => a.IsImage && !string.IsNullOrWhiteSpace(a.Content))
+            .Select(a => a.Content)
+            .ToList();
+
+        if (images.Count > 0)
+            entry["images"] = images;
+
+        return entry;
     }
 
     #region Chat Async
     public async Task<string> ChatAsync(
-        string endpoint,
-        string model,
+        AiProviderConfig config,
         string schemaContext,
         IReadOnlyList<ChatMessage> history,
         CancellationToken ct = default)
     {
+        var endpoint = config.Endpoint.Trim();
         var url = BuildUrl(endpoint, "/api/chat");
-        var payload = new { model, messages = BuildChatMessages(schemaContext, history), stream = false };
+        var payload = new { model = config.Model, messages = BuildChatMessages(schemaContext, history), stream = false };
         var json = JsonSerializer.Serialize(payload);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -91,14 +103,14 @@ public sealed class OllamaService : IOllamaService
     #region Chat Stream Async
 
     public async IAsyncEnumerable<string> ChatStreamAsync(
-        string endpoint,
-        string model,
+        AiProviderConfig config,
         string schemaContext,
         IReadOnlyList<ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        var endpoint = config.Endpoint.Trim();
         var url = BuildUrl(endpoint, "/api/chat");
-        var payload = new { model, messages = BuildChatMessages(schemaContext, history), stream = true };
+        var payload = new { model = config.Model, messages = BuildChatMessages(schemaContext, history), stream = true };
         var json = JsonSerializer.Serialize(payload);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -197,14 +209,14 @@ public sealed class OllamaService : IOllamaService
     }
 
     #endregion
-    public async Task<string> GenerateJsonAsync(string endpoint, string model, string prompt,
+    public async Task<string> GenerateJsonAsync(AiProviderConfig config, string prompt,
         CancellationToken ct = default)
     {
-        var url = BuildUrl(endpoint, "/api/generate");
+        var url = BuildUrl(config.Endpoint.Trim(), "/api/generate");
 
         var payload = new
         {
-            model,
+            model = config.Model,
             prompt,
             format = "json",
             stream = false,
@@ -225,7 +237,7 @@ public sealed class OllamaService : IOllamaService
         catch (HttpRequestException ex)
         {
             throw new InvalidOperationException(
-                $"Could not reach Ollama at {endpoint}. Is it running? ({ex.Message})", ex);
+                $"Could not reach Ollama at {config.Endpoint}. Is it running? ({ex.Message})", ex);
         }
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -249,13 +261,12 @@ public sealed class OllamaService : IOllamaService
         throw new InvalidOperationException("Ollama returned an unexpected response shape.");
     }
 
-    public async Task<(bool Success, string? Error)> TestConnectionAsync(string endpoint, string model, CancellationToken ct = default)
+    public async Task<(bool Success, string? Error)> TestConnectionAsync(AiProviderConfig config, CancellationToken ct = default)
     {
         try
         {
             var reply = await ChatAsync(
-                endpoint,
-                model,
+                config,
                 schemaContext: "(none — this is just a connectivity test)",
                 history: [new ChatMessage { Role = "user", Content = "Reply with just the word OK." }],
                 ct);

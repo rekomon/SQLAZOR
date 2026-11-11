@@ -17,6 +17,8 @@ namespace SQLAZOR.Services
         /// and HttpClient implementations share that interface, these pages work unmodified against
         /// whichever one is registered. <paramref name="pageStyle"/> controls the markup family used:
         /// plain HTML, MudBlazor components, or Tabler (Bootstrap-based) markup.
+        /// <paramref name="lookupPlan"/> turns foreign-key and AI-inferred reference columns into
+        /// dropdowns; when omitted, dropdowns are derived from the schema's foreign keys only.
         /// </summary>
         List<GeneratedFile> GenerateCrudServices(
             DatabaseSchema schema,
@@ -25,6 +27,6 @@ namespace SQLAZOR.Services
             bool generateApiEndpoints,
             bool generateHttpClientServices,
             bool generateBlazorPages,
-            PageStyle pageStyle, ProjectLayers? layers = null);
+            PageStyle pageStyle, ProjectLayers? layers = null, LookupPlan? lookupPlan = null);
     }
 }

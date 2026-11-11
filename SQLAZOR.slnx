@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="DB2Admin.Portal/SQLAZOR.Portal.csproj" />
+  <Project Path="SQLAZOR.Tests/SQLAZOR.Tests.csproj" />
 </Solution>

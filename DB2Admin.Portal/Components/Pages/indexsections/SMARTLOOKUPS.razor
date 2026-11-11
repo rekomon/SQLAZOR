@@ -1,0 +1,76 @@
+<!-- ─── SMART LOOKUPS ─── -->
+<section class="showcase-section" id="lookups">
+    <div class="container">
+        <div class="section-header">
+            <div class="badge-cyber"><i class="bi bi-search me-1"></i> New · Smart lookups</div>
+            <h2>Dropdowns that know your data</h2>
+            <p>Foreign keys become searchable pickers automatically. AI can infer text-column mappings, and a local scan turns categorical columns into fixed lists — without ever sending a value to the model.</p>
+        </div>
+        <div class="ai-gallery">
+            <div class="gallery-col">
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Local distinct scan</span>
+                        <span class="shot-badge">Stays on your machine</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-lookups.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-lookups.png"
+                                 alt="Smart lookups panel listing five fixed-list suggestions scanned from the FixFlow database, each with editable choices and an accepted checkbox"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">One read-only scan found five categorical columns in FixFlow. Every suggestion is editable, and Accept all / Reject all apply in bulk.</p>
+                </article>
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Searchable foreign keys</span>
+                        <span class="shot-badge">Generated form</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-lookup-form.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-lookup-form.png"
+                                 alt="Generated Blazor Ticket form with the Customer autocomplete showing real customer names from the FixFlow database"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">Customer, Technician, Branch, and Tenant ship as <code>MudAutocomplete</code> pickers backed by a cached search method — type a letter, get real names.</p>
+                </article>
+            </div>
+            <div class="gallery-col">
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Fixed-choice columns</span>
+                        <span class="shot-badge">Generated form</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-lookup-status.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-lookup-status.png"
+                                 alt="Generated Ticket form with the Status dropdown open on Completed, InProgress, Pending, and Ready"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">The scanned Status values become a <code>MudSelect</code> — or a fixed <code>&lt;select&gt;</code> in the Plain and Tabler page styles.</p>
+                </article>
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-diagram-2"></i></div>
+                    <h5>AI suggests, you decide</h5>
+                    <p>The planner rejects mappings to unselected tables and explains why. Nothing is applied until you tick it.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-shield-lock"></i></div>
+                    <h5>Values never leave the page</h5>
+                    <p>The scan runs <code>SELECT DISTINCT TOP (11)</code> locally. Cloud providers only ever see table and column names.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-lightning-charge"></i></div>
+                    <h5>Top 50, cached 60s</h5>
+                    <p>Search uses an escaped <code>LIKE</code> over text columns with a bounded per-service cache — no full-table dumps.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

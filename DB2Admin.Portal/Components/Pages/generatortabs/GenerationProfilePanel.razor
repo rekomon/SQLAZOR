@@ -1,0 +1,290 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using SQLAZOR.Models
+@inject GenerationState _State
+@inject IGenerationProfileStore ProfileStore
+@inject IJSRuntime JS
+
+<div class="col-12 mb-3">
+    <div class="field-row mb-2">
+        <label class="text-primary">Generation profile <span class="text-muted small">(selections + options for this database)</span></label>
+        <Popover Title="Generation profiles" Class="w-80"
+                 Content="Saves what you've picked — table/view/procedure selections, namespace and app names, generator options,
+                    and accepted AI insight titles — so the same run can be repeated later or on another machine.
+                    Profiles are stored under <code>%LOCALAPPDATA%\SQLAZOR\generation-profiles</code> and never contain server,
+                    user, or password values. Export writes one portable JSON file; Import loads one back."
+                 Placement="top"
+                 Trigger="click">
+            <button class="btn btn-sm btn-outline-secondary">🔦 Hint</button>
+        </Popover>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <select class="form-select form-select-sm" style="max-width:280px;" value="@_selectedId"
+                @onchange="OnProfileSelected" disabled="@_busy">
+            <option value="">— current unsaved selection —</option>
+            @foreach (var profile in _profiles)
+            {
+                <option value="@profile.Id">@profile.Name (@profile.TableCount table@(profile.TableCount == 1 ? "" : "s"))</option>
+            }
+        </select>
+
+        <button class="btn btn-sm btn-primary" @onclick="ApplyAsync" disabled="@(_busy || _selectedId is null)">
+            Apply
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="SaveAsync" disabled="@_busy">
+            @(_selectedId is null ? "Save" : "Save changes")
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="DeleteAsync" disabled="@(_busy || _selectedId is null)">
+            Delete
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="ExportAsync" disabled="@_busy">
+            Export
+        </button>
+        <label class="btn btn-sm btn-outline-secondary mb-0 @(_busy ? "disabled" : "")">
+            Import
+            <InputFile @key="_importKey" OnChange="ImportAsync" accept=".json,application/json" class="d-none" />
+        </label>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <input class="form-control form-control-sm" style="max-width:280px;" placeholder="Profile name"
+               @bind="_name" @bind:event="oninput" disabled="@_busy" />
+        @if (_profiles.Count == 0)
+        {
+            <span class="text-muted small">No profiles saved for this database yet — configure the options above, then Save.</span>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="status-badge mt-2 @(_statusIsError ? "status-failed" : "status-completed")">@_statusMessage</div>
+    }
+</div>
+
+@code {
+    private const long MaxImportBytes = 1024 * 1024;
+
+    private List<GenerationProfileSummary> _profiles = [];
+    private string? _selectedId;
+    private string _name = string.Empty;
+    private string? _loadedDatabaseKey;
+    private string? _statusMessage;
+    private bool _statusIsError;
+    private bool _busy;
+    private int _importKey;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = _State.Conn.DatabaseKey;
+        if (!string.Equals(_loadedDatabaseKey, key, StringComparison.OrdinalIgnoreCase))
+        {
+            _loadedDatabaseKey = key;
+            _selectedId = null;
+            _name = string.Empty;
+            _statusMessage = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _profiles = [.. await ProfileStore.ListAsync(_loadedDatabaseKey)];
+        }
+        catch (Exception ex)
+        {
+            _profiles = [];
+            SetStatus($"Saved profiles could not be read: {ex.Message}", isError: true);
+        }
+    }
+
+    private void OnProfileSelected(ChangeEventArgs e)
+    {
+        _selectedId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value.ToString();
+        _name = _profiles.FirstOrDefault(p => p.Id == _selectedId)?.Name ?? string.Empty;
+        _statusMessage = null;
+        StateHasChanged();
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_selectedId is null)
+            return;
+
+        _busy = true;
+        try
+        {
+            var profile = await ProfileStore.LoadAsync(_selectedId);
+            if (profile is null)
+            {
+                SetStatus("That profile no longer exists on disk.", isError: true);
+                await ReloadAsync();
+                return;
+            }
+
+            var result = GenerationProfileMapper.Apply(profile, _State);
+            _name = profile.Name;
+
+            var counts = $"{_State.SelectedTableKeys.Count} table(s), {_State.SelectedViewKeys.Count} view(s), " +
+                         $"{_State.SelectedProcedureKeys.Count} procedure(s)";
+            var message = $"Applied \"{profile.Name}\": {counts}.";
+            if (result.AppliedInsightTitleCount > 0)
+                message += $" {result.AppliedInsightTitleCount} accepted insight(s) re-selected.";
+            if (result.MissingTotal > 0)
+            {
+                message += $" {result.MissingTotal} saved item(s) no longer exist in this database and were skipped" +
+                           $" ({result.MissingTableKeys.Count} table, {result.MissingViewKeys.Count} view, " +
+                           $"{result.MissingProcedureKeys.Count} procedure).";
+            }
+
+            SetStatus(message, isError: false);
+            _State.NotifyStateChanged();
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var existing = _selectedId is null ? null : await ProfileStore.LoadAsync(_selectedId);
+            var name = string.IsNullOrWhiteSpace(_name)
+                ? (existing?.Name ?? $"Profile {DateTime.Now:yyyy-MM-dd HH:mm}")
+                : _name.Trim();
+
+            var profile = GenerationProfileMapper.Capture(_State, name, existing);
+            await ProfileStore.SaveAsync(profile);
+
+            _selectedId = profile.Id;
+            _name = profile.Name;
+            await ReloadAsync();
+            SetStatus($"Saved \"{profile.Name}\" ({profile.TableKeys.Count} table(s), {profile.ViewKeys.Count} view(s), " +
+                      $"{profile.ProcedureKeys.Count} procedure(s)).", isError: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Profile could not be saved: {ex.Message}", isError: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_selectedId is null)
+            return;
+
+        var profile = _profiles.FirstOrDefault(p => p.Id == _selectedId);
+        var name = profile?.Name ?? "this profile";
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Delete saved profile \"{name}\"? This cannot be undone.");
+        if (!confirmed)
+            return;
+
+        _busy = true;
+        try
+        {
+            await ProfileStore.DeleteAsync(_selectedId);
+            _selectedId = null;
+            _name = string.Empty;
+            await ReloadAsync();
+            SetStatus($"Deleted \"{name}\". Current selections were left as they are.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Profile could not be deleted: {ex.Message}", isError: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        var name = string.IsNullOrWhiteSpace(_name) ? "generation-profile" : _name.Trim();
+        var profile = GenerationProfileMapper.Capture(_State, name);
+        var json = GenerationProfileJson.Serialize(profile);
+
+        try
+        {
+            await JS.InvokeVoidAsync("SQLAZORChat.downloadText",
+                SafeFileName(profile.Name) + ".profile.json", json, "application/json");
+            SetStatus($"Exported \"{profile.Name}\" as JSON.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Export failed: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size == 0 || file.Size > MaxImportBytes)
+        {
+            SetStatus("Choose a profile JSON file smaller than 1 MB.", isError: true);
+            _importKey++;
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            using var stream = file.OpenReadStream(MaxImportBytes);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var profile = GenerationProfileJson.TryParse(json);
+            if (profile is null)
+            {
+                SetStatus($"\"{file.Name}\" is not a valid generation profile file.", isError: true);
+                return;
+            }
+
+            // Bind the imported template to the database currently connected; keys from the
+            // exporting machine's server name would otherwise hide it from this database's list.
+            profile.DatabaseKey = _State.Conn.DatabaseKey;
+            profile.DatabaseName = _State.Conn.Database;
+
+            await ProfileStore.SaveAsync(profile);
+            _selectedId = profile.Id;
+            _name = profile.Name;
+            await ReloadAsync();
+            SetStatus($"Imported \"{profile.Name}\". Press Apply to use its selections and options.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Import failed: {ex.Message}", isError: true);
+        }
+        finally
+        {
+            _busy = false;
+            _importKey++;
+        }
+    }
+
+    private void SetStatus(string message, bool isError)
+    {
+        _statusMessage = message;
+        _statusIsError = isError;
+        StateHasChanged();
+    }
+
+    private static string SafeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c)).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "generation-profile" : cleaned;
+    }
+}

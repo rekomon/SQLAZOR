@@ -62,6 +62,14 @@
                 </li>
 
                 <li class="nav-item" role="presentation">
+                                    <MudButton class="nav-link" id="smartLookup-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
+                                               data-bs-target="#smartLookup" type="button" role="tab">
+                        Smart lookups
+                    </MudButton>
+
+                </li>
+
+                <li class="nav-item" role="presentation">
                                     <MudButton class="nav-link" id="generateTab-tab" data-bs-toggle="tab" Disabled="@DisabledTabs"
                             data-bs-target="#generateTab" type="button" role="tab">
                         Generate
@@ -101,12 +109,15 @@
                                     ImplicitFkCandidates="_State.ImplicitFkCandidates" 
                                     AcceptedImplicitFkKeys="_State.AcceptedImplicitFkKeys" />
                                 </div>
+                                <div class="tab-pane fade" id="smartLookup" role="tabpanel">
+                                    <SmartLookupTab Schema="_State.Schema" SelectedTableKeys="_State.SelectedTableKeys" />
+                                </div>
                                 <div class="tab-pane fade" id="generateTab" role="tabpanel">
                                    <GenerateTab/>
                                 </div>
 
                                 <div class="tab-pane fade" id="resultsTab" role="tabpanel">
-                                    <ResultTab GeneratedFiles="@_State.GeneratedFiles" AppName="@_State.ApplicationName" />
+                                    <ResultTab GeneratedFiles="@_State.GeneratedFiles" AppName="@_State.ApplicationName" Validation="@_State.Validation" />
                                 </div>
 
             </div>
@@ -128,6 +139,8 @@
 @code {
 
     bool DisabledTabs = true;
+    private string? _loadedSchemaKey;
+
     protected override void OnInitialized()
     {
         _State.OnChange += StateHasChangedHandler;
@@ -144,22 +157,30 @@
     {
         DisabledTabs = !_State.Conn.IsConnected;
 
-        InvokeAsync(LoadSchemaAsync);
-        InvokeAsync(StateHasChanged);
+        // Only re-read the schema when the connection target actually changed - UI notifications
+        // (chat messages, accepted insights, file edits) fire this event far more often than that.
+        if (_State.Conn.IsConnected &&
+            !string.Equals(_loadedSchemaKey, _State.Conn.DatabaseKey, StringComparison.OrdinalIgnoreCase))
+        {
+            InvokeAsync(LoadSchemaAsync);
+        }
 
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadSchemaAsync()
     {
         if (_State.Conn.IsConnected)
         {
+            var key = _State.Conn.DatabaseKey;
             try
             {
                 _State.Schema = await SchemaReader.ReadSchemaAsync(_State.Conn.ConnectionString, includeViews: true);
+                _loadedSchemaKey = key;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                
+                _loadedSchemaKey = null;
             }
         }
     }

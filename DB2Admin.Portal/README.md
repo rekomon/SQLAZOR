@@ -40,6 +40,48 @@ Requires the ASP.NET Core SDK (net10.0) and a NuGet feed reachable for
 4. **Preview / Download** — click through files in the left-hand list to
    preview them, or grab everything at once as a `.zip`.
 
+## Regenerating safely (manifest, diffs, conflicts)
+
+Every successful generation stores a per-database manifest of file hashes under
+`%LOCALAPPDATA%\SQLAZOR\generation-manifests` (the file name is a hash of
+`server|database`, so neither name is written to disk, and no credentials are stored).
+The next run is a real three-way merge — last generator baseline vs. what's on disk vs.
+the fresh output:
+
+- **Generator-only changes** apply silently (new files added, unchanged generator files updated).
+- **Local edits** — files you changed or added after the previous run — are kept automatically.
+  They're detected by hash, not by timestamp.
+- **Genuine conflicts and removals** (both sides changed the same file, or a file is no longer
+  generated) open the **Regeneration changes** panel instead of overwriting anything. Pick
+  *Keep current* / *Use generated* per file, or *Keep file* / *Remove file*, with a side-by-side
+  diff; nothing is written until **Apply changes**. **Cancel** leaves every existing file untouched.
+
+You can also edit any generated file through the AI assistant (see below); the result goes through
+the same validation and manifest update.
+
+## Validation and deep compile check
+
+Two independent checks run on the **Results** tab:
+
+- **Generated code check** — parses every C#, Razor `@code` block, JSON, and project XML file and
+  reports syntax errors with file/line. Fast, always on after a generation, no SDK or network use.
+- **Deep compile check** — writes the generated files (plus a temporary `appsettings.json` that is
+  deleted again) to a temp folder and runs `dotnet build`, then maps MSBuild/Roslyn errors back to
+  the relative generated paths. Catches missing usings, unknown types, and DI/wiring mistakes the
+  parser can't see. It only runs when you ask, needs a generated `.csproj`, and needs the .NET SDK —
+  plus NuGet access the first time the generated project needs a package. Long builds can be
+  stopped; the process tree is killed on cancellation.
+
+## Saved generation profiles
+
+The **Generation profile** row on the Generate tab saves the current setup for one database —
+selected tables/views/procedures, root namespace, DbContext/application names, every generator
+option, and accepted AI insight titles — as a named profile. **Apply** restores all of it, dropping
+(and reporting) any saved item that no longer exists in the database. Profiles are stored under
+`%LOCALAPPDATA%\SQLAZOR\generation-profiles`, one JSON file each, and never include server, user,
+or password values. **Export** writes a portable `.profile.json`; **Import** loads one back (as a
+new profile, so importing twice doesn't overwrite). Profiles are listed per database.
+
 ## Stored procedures
 
 Procedures don't map cleanly onto EF entities, so they get a different treatment
@@ -89,11 +131,42 @@ How it works: every message is sent with a
 system prompt built from `SchemaContextBuilder` — a compact text rendering of
 every table, its columns (name, SQL type, nullability), PK/FK markers, and
 the stored procedure list. The model never touches your actual data, only
-the schema shape. Conversation history is per-session (`GenerationState`) and
-clears if you reload the page or click **Clear**.
+the schema shape. Conversation history lives in `GenerationState` while you work, and every
+completed exchange is saved to disk automatically (see below).
 
 If Ollama isn't reachable, isn't running, or the model name is wrong, the
 error surfaces inline in the chat rather than failing silently.
+
+### Saved conversations
+
+Each conversation is written as one JSON file under `%LOCALAPPDATA%\SQLAZOR\chat-sessions`
+(atomic temp-file writes, malformed files skipped rather than breaking the list). The
+**Conversation** row lets you switch between them, start a new one, delete one, and:
+
+- **Rename** — pencil button; edits the title in place. The title is also the basis for export
+  file names.
+- **Pin** — pin icon; pinned conversations sort first in the dropdown (newest first within each
+  group), so the ones you keep coming back to stay at the top. The pin is saved with the session,
+  including across re-opening the app.
+- **Search** — the search box filters by title, database name, *and message text* as you type.
+  The conversation you currently have open stays in the dropdown even if it doesn't match, so
+  filtering never makes it look unsaved.
+
+The same row exports the current conversation as `.md`, `.html`, `.json`, or a `.zip`
+(transcript + extracted code files + attachments) and imports a `.json` back as a new
+conversation.
+
+### Editing generated files from the assistant
+
+Below the chat is an **AI file edit** panel: pick any currently generated file, describe the change
+("add a Total property", "switch this page to a card layout"), and the model returns the complete
+new file. It's shown as a **diff against the existing content before anything changes** —
+**Apply** replaces that file in the generated set, re-runs validation, and updates the manifest;
+**Discard** leaves it alone. The panel is hidden while a regeneration merge is pending, since both
+would be editing the same files at once.
+
+The model list is intentionally hardcoded in the UI; SQLAZOR never calls Ollama's
+`GET /api/tags` to discover models.
 
 ### Running the queries it writes
 
@@ -230,6 +303,32 @@ This is deliberately minimal, unstyled-beyond-the-basics scaffolding either way 
 to wire up, not a finished admin UI. No client-side validation beyond whatever you add yourself, no
 delete confirmation dialog, no pagination on the grid.
 
+## Smart lookups (dropdowns from real data)
+
+Foreign keys always become dropdowns, automatically. The **Smart lookups** panel can turn text
+columns into lists too:
+
+- **Suggest lookups (AI)** — sends only table and column names (never row data) and asks the model
+  for mappings such as `Ticket.CustomerName → Customers`, or a categorical `Ticket.Status` with a
+  fixed list. Nothing is applied until you tick a suggestion.
+- **Scan distinct values (local)** — runs a read-only, bounded `SELECT DISTINCT TOP (11)` for
+  columns whose names look categorical (`Status`, `Priority`, `Role`, `Category`, …). Columns with
+  2–10 distinct values become fixed lists. The values stay on this machine and are never sent to
+  an AI provider.
+- Suggestions can be edited inline (fixed choices, display columns), accepted or rejected in bulk,
+  and saved with a **generation profile**, so the same choices re-apply on another machine.
+
+Generated forms use the accepted lookups:
+
+- **MudBlazor** — `MudAutocomplete` backed by the generated `SearchAsync(string? term, int take =
+  50, CancellationToken)`. Only 50 matches are fetched at a time; edit pages seed the current label
+  through `GetByIdAsync`.
+- **Plain / Tabler** — a search input above the bounded `<select>` filters the loaded options.
+
+Every generated service — Dapper, API controller, and HttpClient — exposes the same `SearchAsync`.
+The Dapper implementation uses `TOP (@take)`, `LIKE` with `~` wildcard escaping, and a bounded
+60-second static cache per service.
+
 ## Page style: Plain / MudBlazor / Tabler
 
 Once Blazor pages are enabled, pick one of three markup families for the List/Create/Edit pages
@@ -358,6 +457,15 @@ just open it in a browser) describing exactly what that run produced:
 
 This is generated last, after everything else, specifically so its file tree and stat counts
 reflect the real, final output rather than a guess at what was about to be generated.
+
+## Generated page preview
+
+The Results tab scans the generated files for `.html` and renders the selected one in a
+**sandboxed iframe** (`sandbox="allow-scripts"`, deliberately without `allow-same-origin`). The
+page gets no access to the SQLAZOR app, its DOM, storage, or cookies, and is never served from the
+portal's own URL. Self-contained pages such as `docs/index.html` preview exactly as they'd open from
+disk; Razor pages are not previewed (they need a real build), and files over ~2 MB are left to the
+file list / zip download instead.
 
 ## Full project scaffold (Program.cs, .csproj, admin dashboard shell)
 
@@ -492,8 +600,11 @@ table/`DbContext` output, only for this CRUD layer.
   if a table's FK points at a table you didn't select, that particular
   navigation property is simply omitted (its scalar FK column still
   generates normally).
-- This was written and reviewed by hand in this environment; it has **not**
-  been compiled/run here (no outbound NuGet access in this sandbox), so treat
-  it as a solid first pass — do a `dotnet build` locally and skim the output
-  for your actual schema's edge cases (unusual types, multi-schema FKs,
-  extremely long identifiers, etc.) before trusting it wholesale.
+- Covered by `SQLAZOR.Tests` (xUnit): generation snapshots, merge/diff and manifest
+  round-trips, profile mapping and stores, chat export/import, the generated-code validator, and
+  the deep build parser (including two real `dotnet build` runs). Integration tests in
+  `SQLAZOR.Tests/Integration` create and drop a throwaway database against a real SQL Server and
+  **skip automatically** when none is reachable; set `SQLAZOR_TEST_SQL` to point them at a server.
+- Still worth a `dotnet build` locally and a skim of the output for your actual schema's edge
+  cases (unusual types, multi-schema FKs, extremely long identifiers, etc.) before trusting it
+  wholesale.

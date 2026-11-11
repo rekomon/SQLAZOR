@@ -175,6 +175,22 @@ public static partial class NamingHelper
         return pascalCaseWord + "s";
     }
 
+    /// <summary>
+    /// Turns a raw or PascalCase identifier into a readable label: "CustomerId" -> "Customer Id",
+    /// "customer_first_name" -> "Customer First Name".
+    /// </summary>
+    public static string Humanize(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+            return identifier;
+
+        var parts = SplitWordsRegex().Split(identifier).Where(p => p.Length > 0);
+        var words = parts.Select(part =>
+            part.All(char.IsDigit) ? part : char.ToUpperInvariant(part[0]) + part[1..].ToLowerInvariant());
+
+        return string.Join(" ", words);
+    }
+
     /// <summary>Escapes a name if it happens to collide with a C# reserved keyword.</summary>
     public static string EscapeIfReserved(string identifier)
     {

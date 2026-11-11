@@ -60,7 +60,7 @@
     [Parameter]
     public DatabaseSchema? Schema { get; set; }
     [Parameter]
-    public HashSet<string> SelectedTableKeys { get; set; }
+    public HashSet<string> SelectedTableKeys { get; set; } = default!;
     [Parameter]
     public List<ImplicitForeignKeyCandidate> ImplicitFkCandidates { get; set; } = [];
     [Parameter]

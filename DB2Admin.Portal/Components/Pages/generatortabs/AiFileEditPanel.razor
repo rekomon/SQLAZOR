@@ -1,0 +1,210 @@
+@inject GenerationState _State
+@inject IChatProviderService Chat
+@inject IGeneratedCodeValidator Validator
+
+<div class="card p-3 mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="card-title text-primary mb-0">Edit a generated file (AI)</h6>
+        <span class="text-muted small">(uses the configured AI provider, optional)</span>
+    </div>
+
+    @if (_State.PendingMerge is not null)
+    {
+        <p class="text-muted small mb-0">Resolve the pending regeneration changes first, then edit files here.</p>
+    }
+    else if (_State.GeneratedFiles.Count == 0)
+    {
+        <p class="text-muted small mb-0">Generate some files first — then you can ask for a targeted change and review it as a diff before applying.</p>
+    }
+    else
+    {
+        <p class="text-muted small">
+            The model returns the complete updated file. Nothing changes until you press Apply,
+            and the diff shows exactly what would move.
+        </p>
+
+        <div class="row g-2">
+            <div class="col-md-5">
+                <label class="form-label" for="aiEditFile">File</label>
+                <select id="aiEditFile" class="form-select" @bind="_path" disabled="@_busy">
+                    @foreach (var file in _State.GeneratedFiles)
+                    {
+                        <option value="@file.RelativePath">@file.RelativePath</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-7">
+                <label class="form-label" for="aiEditInstruction">What should change?</label>
+                <input id="aiEditInstruction" class="form-control" @bind="_instruction" @bind:event="oninput"
+                       placeholder="e.g. add XML docs, switch to async, rename to match the table" disabled="@_busy" />
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-outline-secondary" @onclick="SuggestAsync"
+                    disabled="@(_busy || SelectedFile is null || string.IsNullOrWhiteSpace(_instruction))">
+                @(_busy ? "Thinking…" : "Suggest edit")
+            </button>
+            @if (_busy)
+            {
+                <button class="btn btn-outline-danger" @onclick="Stop">Stop</button>
+            }
+            @if (_suggestion is not null && !_busy)
+            {
+                <button class="btn btn-primary" @onclick="ApplyAsync">Apply change</button>
+                <button class="btn btn-outline-secondary" @onclick="Discard">Discard</button>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_statusMessage))
+        {
+            <div class="status-badge mt-2 @(_statusIsError ? "status-failed" : "status-completed")">@_statusMessage</div>
+        }
+
+        @if (_suggestion is not null && SelectedFile is { } selected)
+        {
+            <p class="small text-primary mt-3 mb-1">@_suggestion.Summary</p>
+            <DiffView OldText="@selected.Content" NewText="@_suggestion.Content" />
+        }
+    }
+</div>
+
+@code {
+    private const int MaxEditableCharacters = 48_000;
+
+    private string _path = string.Empty;
+    private string _instruction = string.Empty;
+    private string? _statusMessage;
+    private bool _statusIsError;
+    private bool _busy;
+    private FileEditSuggestion? _suggestion;
+    private CancellationTokenSource? _cts;
+
+    private GeneratedFile? SelectedFile =>
+        _State.GeneratedFiles.FirstOrDefault(f => string.Equals(f.RelativePath, _path, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnParametersSet()
+    {
+        if (SelectedFile is null && _State.GeneratedFiles.Count > 0)
+            _path = _State.GeneratedFiles[0].RelativePath;
+    }
+
+    private async Task SuggestAsync()
+    {
+        var file = SelectedFile;
+        if (file is null || string.IsNullOrWhiteSpace(_instruction) || _busy)
+            return;
+
+        if (file.Content.Length > MaxEditableCharacters)
+        {
+            ShowStatus($"That file is larger than {MaxEditableCharacters / 1000} KB; ask for a smaller, more targeted file.", isError: true);
+            return;
+        }
+
+        _busy = true;
+        _suggestion = null;
+        _statusMessage = null;
+        _cts = new CancellationTokenSource();
+        StateHasChanged();
+
+        try
+        {
+            var schemaContext = _State.Schema is null
+                ? "(schema not loaded)"
+                : SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
+
+            var prompt = FileEditAssistant.BuildPrompt(file.RelativePath, file.Content, _instruction.Trim(), schemaContext);
+            var json = await Chat.GenerateJsonAsync(_State.CurrentAiConfig, prompt, _cts.Token);
+
+            _suggestion = FileEditAssistant.TryParse(json);
+            if (_suggestion is null)
+            {
+                ShowStatus("The model returned something that wasn't a usable file edit. Try rephrasing the instruction.", isError: true);
+            }
+            else if (ContentHash.Compute(_suggestion.Content) == ContentHash.Compute(file.Content))
+            {
+                ShowStatus("The proposed file is identical to the current one.", isError: false);
+            }
+            else
+            {
+                ShowStatus("Review the diff, then apply or discard.", isError: false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            ShowStatus("Edit cancelled.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus(ex.Message, isError: true);
+        }
+        finally
+        {
+            _cts?.Dispose();
+            _cts = null;
+            _busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Stop() => _cts?.Cancel();
+
+    private async Task ApplyAsync()
+    {
+        if (_suggestion is null || SelectedFile is not { } file)
+            return;
+
+        var index = _State.GeneratedFiles.FindIndex(
+            f => string.Equals(f.RelativePath, file.RelativePath, StringComparison.OrdinalIgnoreCase));
+
+        if (index < 0)
+            return;
+
+        _State.GeneratedFiles[index] = new GeneratedFile
+        {
+            RelativePath = file.RelativePath,
+            Content = _suggestion.Content
+        };
+
+        try
+        {
+            _State.Validation = Validator.Validate(_State.GeneratedFiles);
+        }
+        catch (Exception)
+        {
+            // Validation is advisory; the edit is already applied.
+        }
+
+        var appliedPath = file.RelativePath;
+        Discard();
+        ShowStatus($"Applied the AI edit to {appliedPath}.", isError: false);
+
+        _State.NotifyStateChanged();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Discard()
+    {
+        _suggestion = null;
+        _instruction = string.Empty;
+    }
+
+    private void ShowStatus(string message, bool isError)
+    {
+        _statusMessage = message;
+        _statusIsError = isError;
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _cts?.Dispose();
+    }
+}

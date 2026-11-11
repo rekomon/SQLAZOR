@@ -1,7 +1,18 @@
-﻿<pre class="chat-code">
+﻿@inject IJSRuntime _JSRuntime
 
-    <code>@Code</code>
-</pre>
+<pre class="chat-code"><code>@Code</code></pre>
+
+<div class="chat-code-actions">
+    <button class="btn small" @onclick="CopyAsync">
+        <i class="bi @(_copied ? "bi-check2" : "bi-clipboard")"></i> @(_copied ? "Copied" : "Copy")
+    </button>
+    <button class="btn small" @onclick="DownloadAsync" title="Download as @FileName">
+        <i class="bi bi-download"></i> @FileName
+    </button>
+    <button class="btn small" @onclick="OnAddToGenerated" title="Add this snippet to the generated files">
+        <i class="bi bi-file-earmark-plus"></i> Add to generated
+    </button>
+</div>
 
 @if (IsSql)
 {
@@ -23,45 +34,116 @@
         }
         else
         {
-            <div class="query-result-wrap">
-                <table class="table-hover table">
-                    <thead>
-                        <tr>
-                            @foreach (var col in Result.Columns)
-                            {
-                                <th>@col</th>
-                            }
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var row in Result.Rows)
-                        {
-                            <tr>
-                                @foreach (var cell in row)
-                                {
-                                    <td class="text-primary">@(cell ?? "NULL")</td>
-                                }
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-                @if (Result.Truncated)
+            <div class="query-result-toolbar">
+                <button type="button" class="@TableButtonClass" @onclick="ShowTable">Table</button>
+                @if (_chartSpec is not null)
                 {
-                    <p class="text-muted small">Showing first @Result.Rows.Count row(s) — truncated for safety.</p>
-                }
-                else
-                {
-                    <p class="text-muted small">@Result.Rows.Count row(s).</p>
+                    <button type="button" class="@ChartButtonClass" @onclick="ShowChart">Chart</button>
                 }
             </div>
+
+            @if (_view == "chart" && _chartSpec is not null)
+            {
+                <ChatChart Spec="_chartSpec" Height="240" />
+            }
+            else
+            {
+                <div class="query-result-wrap">
+                    <table class="table-hover table">
+                        <thead>
+                            <tr>
+                                @foreach (var col in Result.Columns)
+                                {
+                                    <th>@col</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in Result.Rows)
+                            {
+                                <tr>
+                                    @foreach (var cell in row)
+                                    {
+                                        <td class="text-primary">@(cell ?? "NULL")</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (Result.Truncated)
+                    {
+                        <p class="text-muted small">Showing first @Result.Rows.Count row(s) — truncated for safety.</p>
+                    }
+                    else
+                    {
+                        <p class="text-muted small">@Result.Rows.Count row(s).</p>
+                    }
+                </div>
+            }
         }
     }
 }
 
 @code {
     [Parameter, EditorRequired] public string Code { get; set; } = string.Empty;
+    [Parameter] public string FileName { get; set; } = "snippet.txt";
     [Parameter] public bool IsSql { get; set; }
     [Parameter] public bool IsRunning { get; set; }
     [Parameter] public SqlQueryRunResult? Result { get; set; }
     [Parameter] public EventCallback OnRun { get; set; }
+    [Parameter] public EventCallback OnAddToGenerated { get; set; }
+
+    private bool _copied;
+    private string _view = "table";
+    private ChatChartSpec? _chartSpec;
+    private SqlQueryRunResult? _chartBuiltFor;
+
+    private string TableButtonClass => _view == "table" ? "btn small active" : "btn small";
+    private string ChartButtonClass => _view == "chart" ? "btn small active" : "btn small";
+
+    private void ShowTable() => _view = "table";
+    private void ShowChart() => _view = "chart";
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_chartBuiltFor, Result))
+            return;
+
+        _chartBuiltFor = Result;
+        _chartSpec = Result is { Success: true } ? ChatChartParser.FromQueryResult(Result) : null;
+
+        if (_chartSpec is null)
+            _view = "table";
+    }
+
+    private async Task CopyAsync()
+    {
+        try
+        {
+            _copied = await _JSRuntime.InvokeAsync<bool>("SQLAZORChat.copyText", Code);
+        }
+        catch (Exception)
+        {
+            _copied = false;
+        }
+
+        StateHasChanged();
+
+        if (!_copied)
+            return;
+
+        await Task.Delay(1500);
+
+        if (_copied)
+        {
+            _copied = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task DownloadAsync()
+    {
+        var mime = ChatExporter.MimeFor(FileName);
+        await _JSRuntime.InvokeVoidAsync("SQLAZORChat.downloadText", FileName, Code, mime);
+    }
 }

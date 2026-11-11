@@ -19,9 +19,16 @@ public static class SchemaContextBuilder
         foreach (var table in schema.Tables.OrderBy(t => t.Schema).ThenBy(t => t.TableName))
         {
             var pkNames = table.PrimaryKeyColumns.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // GroupBy instead of ToDictionary: a column can have more than one FK constraint
+            // pointing at it (duplicate constraints, or genuinely multiple targets), and that
+            // must not crash context generation. All targets are shown, joined by "|".
             var fkByColumn = schema.ForeignKeys
                 .Where(fk => fk.ParentSchema == table.Schema && fk.ParentTable == table.TableName)
-                .ToDictionary(fk => fk.ParentColumn, fk => $"{fk.ReferencedSchema}.{fk.ReferencedTable}.{fk.ReferencedColumn}", StringComparer.OrdinalIgnoreCase);
+                .GroupBy(fk => fk.ParentColumn, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => string.Join("|", g.Select(fk => $"{fk.ReferencedSchema}.{fk.ReferencedTable}.{fk.ReferencedColumn}").Distinct()),
+                    StringComparer.OrdinalIgnoreCase);
 
             sb.Append($"- {table.Schema}.{table.TableName}");
             if (table.IsView) sb.Append(" (view)");

@@ -1,0 +1,86 @@
+@page "/"
+@inject DashboardStatsService Stats
+@inject IJSRuntime JS
+
+<PageTitle>ShopApp</PageTitle>
+
+<h3>Welcome to ShopApp</h3>
+
+<div class="dashboard-grid mb-4">
+    <div class="dashboard-card">
+        <h4>Customers</h4>
+        <span class="stat-number">@_customersCount</span>
+    </div>
+    <div class="dashboard-card">
+        <h4>Orders</h4>
+        <span class="stat-number">@_ordersCount</span>
+    </div>
+    <div class="dashboard-card">
+        <h4>OrderLines</h4>
+        <span class="stat-number">@_orderLinesCount</span>
+    </div>
+    <div class="dashboard-card">
+        <h4>Products</h4>
+        <span class="stat-number">@_productsCount</span>
+    </div>
+</div>
+
+<div class="chart-grid mb-4">
+    <div class="dashboard-card" style="cursor: default;">
+        <h4>OrdersByStatus</h4>
+        <div id="chart-0" style="height: 260px;"></div>
+    </div>
+    <div class="dashboard-card" style="cursor: default;">
+        <h4>RevenueByMonth</h4>
+        <div id="chart-1" style="height: 260px;"></div>
+    </div>
+</div>
+
+<h4>Manage data</h4>
+<div class="dashboard-grid">
+    <a class="dashboard-card" href="/customers">
+        <h4>Customers</h4>
+        <span>View &amp; manage &rarr;</span>
+    </a>
+    <a class="dashboard-card" href="/orders">
+        <h4>Orders</h4>
+        <span>View &amp; manage &rarr;</span>
+    </a>
+    <a class="dashboard-card" href="/orderlines">
+        <h4>OrderLines</h4>
+        <span>View &amp; manage &rarr;</span>
+    </a>
+    <a class="dashboard-card" href="/products">
+        <h4>Products</h4>
+        <span>View &amp; manage &rarr;</span>
+    </a>
+</div>
+
+@code {
+    private int _customersCount;
+    private int _ordersCount;
+    private int _orderLinesCount;
+    private int _productsCount;
+    private List<ChartDataPoint> _points0 = new();
+    private List<ChartDataPoint> _points1 = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _customersCount = await Stats.GetCustomersCountAsync();
+        _ordersCount = await Stats.GetOrdersCountAsync();
+        _orderLinesCount = await Stats.GetOrderLinesCountAsync();
+        _productsCount = await Stats.GetProductsCountAsync();
+        _points0 = await Stats.GetOrdersByStatusAsync();
+        _points1 = await Stats.GetRevenueByMonthAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await JS.InvokeVoidAsync("charts.renderBar", "chart-0",
+            _points0.Select(p => p.Label).ToArray(), _points0.Select(p => p.Value).ToArray());
+        await JS.InvokeVoidAsync("charts.renderLine", "chart-1",
+            _points1.Select(p => p.Label).ToArray(), _points1.Select(p => p.Value).ToArray());
+    }
+}

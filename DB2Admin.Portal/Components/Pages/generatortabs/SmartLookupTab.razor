@@ -1,0 +1,284 @@
+@using static SQLAZOR.Services.GenerationState
+@inject GenerationState _State
+@inject IChatProviderService Chat
+@inject LookupValueSampler _Sampler
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex justify-content-start align-items-center mb-3">
+                <h5 class="card-title text-primary mb-0">Smart lookups </h5>
+                <span class="text-muted small"> (AI-assisted dropdown mapping)</span>
+            </div>
+            <p class="text-muted">
+                Foreign keys already become dropdowns automatically when pages are generated. This panel
+                asks the configured AI provider to find <em>text</em> columns that should also be lists —
+                for example <code>Ticket.CustomerName → Customers</code>,
+                <code>Ticket.Technician → Staff</code>, or a categorical <code>Status</code> column with a
+                fixed set of choices. Only names and types are sent, never row data. Nothing is applied
+                until you tick a suggestion.
+            </p>
+
+            <div class="actions mb-2">
+                <button class="btn btn-outline-secondary" @onclick="SuggestLookupsAsync"
+                        disabled="@(_busy || SelectedTableKeys.Count == 0)">
+                    Suggest lookups (AI)
+                </button>
+                <button class="btn btn-outline-secondary ms-2" @onclick="ScanDistinctValuesAsync"
+                        disabled="@(_busy || SelectedTableKeys.Count == 0)">
+                    Scan distinct values (local)
+                </button>
+                @if (_busy)
+                {
+                    <span class="text-muted small ms-2">@_busyMessage</span>
+                }
+            </div>
+
+            @if (Suggestions.Count > 0)
+            {
+                <div class="actions mb-2">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AcceptAll">Accept all</button>
+                    <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="RejectAll">Reject all</button>
+                    <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="ClearSuggestions">Clear</button>
+                </div>
+            }
+
+            <p class="text-muted small mb-0">
+                The local scan reads up to ten distinct values per column from your database to suggest
+                fixed lists. Values stay in this page — they are never sent to the AI provider.
+            </p>
+
+            @if (!string.IsNullOrEmpty(_statusMessage))
+            {
+                <div class="status-badge @(_statusIsError ? "status-failed" : "status-completed")">@_statusMessage</div>
+            }
+
+            @if (Suggestions.Count == 0 && !_busy)
+            {
+                <p class="text-muted small mb-0">
+                    No inferred lookups yet. Suggestions appear here for review; accepted ones are used the
+                    next time you generate Blazor pages.
+                </p>
+            }
+            else if (Suggestions.Count > 0)
+            {
+                <ul class="list-group mt-3">
+                    @foreach (var suggestion in Suggestions)
+                    {
+                        var key = suggestion.Key;
+                        <li class="list-group-item">
+                            <div class="table-item">
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@AcceptedLookupKeys.Contains(key)"
+                                       @onchange="e => ToggleAccepted(key, (bool)e.Value!)" />
+                                <span class="text-primary">@suggestion.TableKey.@suggestion.ColumnName</span>
+                                <span class="text-muted small">→ @DescribeTarget(suggestion)</span>
+                                <span class="badge @(suggestion.Kind == LookupSuggestionKind.Static ? "bg-secondary" : "bg-info")">
+                                    @(suggestion.Kind == LookupSuggestionKind.Static ? "fixed list" : "reference")
+                                </span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(suggestion.Reason))
+                            {
+                                <p class="text-muted small suggestion-summary">@suggestion.Reason</p>
+                            }
+                            @if (suggestion.Kind == LookupSuggestionKind.Static)
+                            {
+                                <div class="lookup-edit">
+                                    <label class="text-muted small">Choices</label>
+                                    <input class="form-control form-control-sm"
+                                           value="@string.Join(", ", suggestion.Options)"
+                                           @onchange="e => UpdateOptions(suggestion, e.Value?.ToString())" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="lookup-edit">
+                                    <label class="text-muted small">Display columns</label>
+                                    <input class="form-control form-control-sm"
+                                           value="@string.Join(", ", suggestion.LabelColumns)"
+                                           @onchange="e => UpdateLabelColumns(suggestion, e.Value?.ToString())" />
+                                </div>
+                            }
+                            <p class="text-muted small suggestion-summary mb-0">@DescribeDetail(suggestion)</p>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public DatabaseSchema? Schema { get; set; }
+
+    [Parameter]
+    public HashSet<string> SelectedTableKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool _busy;
+    private string _busyMessage = "Analyzing schema…";
+    private string? _statusMessage;
+    private bool _statusIsError;
+
+    private List<LookupSuggestion> Suggestions => _State.LookupSuggestions;
+    private HashSet<string> AcceptedLookupKeys => _State.AcceptedLookupKeys;
+
+    private async Task SuggestLookupsAsync()
+    {
+        if (Schema is null || SelectedTableKeys.Count == 0)
+            return;
+
+        _busy = true;
+        _busyMessage = "Analyzing schema…";
+        _statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var prompt = LookupAssistant.BuildPrompt(Schema, SelectedTableKeys);
+            var json = await Chat.GenerateJsonAsync(_State.CurrentAiConfig, prompt);
+            var suggestions = LookupAssistant.Parse(json, Schema, SelectedTableKeys);
+
+            _State.LookupSuggestions = suggestions;
+            _State.AcceptedLookupKeys.Clear();
+            _State.NotifyStateChanged();
+
+            _statusMessage = suggestions.Count == 0
+                ? "The model didn't find any confident lookup mappings."
+                : $"Found {suggestions.Count} lookup suggestion(s). Tick the ones you want, then generate.";
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Lookup analysis failed: {ex.Message}";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ScanDistinctValuesAsync()
+    {
+        if (Schema is null || SelectedTableKeys.Count == 0)
+            return;
+
+        var connectionString = _State.Conn.ConnectionString;
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            _statusMessage = "Connect to a database first — the local scan reads values from it.";
+            _statusIsError = true;
+            return;
+        }
+
+        _busy = true;
+        _busyMessage = "Reading distinct values…";
+        _statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var (incoming, warnings) = await _Sampler.SampleAsync(Schema, SelectedTableKeys, connectionString);
+
+            // Keep AI suggestions and add/refresh the ones the scan found for the same column.
+            _State.LookupSuggestions = LookupSuggestionSet.Merge(_State.LookupSuggestions, incoming);
+            _State.NotifyStateChanged();
+
+            _statusMessage = incoming.Count == 0
+                ? "No categorical columns with 2–10 distinct values were found."
+                : $"Found {incoming.Count} fixed-list suggestion(s) from local data." +
+                  (warnings.Count > 0 ? $" {warnings.Count} column(s) could not be read." : string.Empty);
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Local scan failed: {ex.Message}";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AcceptAll()
+    {
+        foreach (var suggestion in Suggestions)
+            _State.AcceptedLookupKeys.Add(suggestion.Key);
+
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private void RejectAll()
+    {
+        _State.AcceptedLookupKeys.Clear();
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private void ClearSuggestions()
+    {
+        _State.LookupSuggestions = [];
+        _State.AcceptedLookupKeys.Clear();
+        _statusMessage = null;
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private void ToggleAccepted(string key, bool accepted)
+    {
+        if (accepted) _State.AcceptedLookupKeys.Add(key);
+        else _State.AcceptedLookupKeys.Remove(key);
+
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private void UpdateOptions(LookupSuggestion suggestion, string? text)
+    {
+        var values = SplitList(text);
+        suggestion.Options.Clear();
+        suggestion.Options.AddRange(values);
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private void UpdateLabelColumns(LookupSuggestion suggestion, string? text)
+    {
+        var values = SplitList(text);
+        suggestion.LabelColumns.Clear();
+        suggestion.LabelColumns.AddRange(values);
+        _State.NotifyStateChanged();
+        StateHasChanged();
+    }
+
+    private static List<string> SplitList(string? text) =>
+        (text ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string DescribeTarget(LookupSuggestion suggestion) =>
+        suggestion.Kind == LookupSuggestionKind.Static
+            ? "fixed choices"
+            : suggestion.ReferencedTableKey ?? "?";
+
+    private static string DescribeDetail(LookupSuggestion suggestion)
+    {
+        if (suggestion.Kind == LookupSuggestionKind.Static)
+            return "Values: " + string.Join(", ", suggestion.Options);
+
+        var label = suggestion.LabelColumns.Count == 0
+            ? "(auto-picked display column)"
+            : "display: " + string.Join(" + ", suggestion.LabelColumns);
+
+        var stored = string.IsNullOrWhiteSpace(suggestion.ValueColumn)
+            ? "stores the displayed text"
+            : $"stores {suggestion.ValueColumn}";
+
+        return $"{label} — {stored}.";
+    }
+}

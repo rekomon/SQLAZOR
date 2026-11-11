@@ -1,0 +1,92 @@
+@if (Lines.Count == 0)
+{
+    <p class="text-muted small">No differences.</p>
+}
+else
+{
+    <div class="diff-view">
+        @foreach (var item in _display)
+        {
+            if (item.IsSeparator)
+            {
+                <div class="diff-line diff-separator">…</div>
+            }
+            else if (item.Line is { } line)
+            {
+                <div class="diff-line @KindClass(line.Kind)">
+                    <span class="diff-num">@(line.OldLineNumber?.ToString() ?? "")</span>
+                    <span class="diff-num">@(line.NewLineNumber?.ToString() ?? "")</span>
+                    <span class="diff-sign">@Sign(line.Kind)</span>
+                    <span class="diff-text">@line.Text</span>
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? OldText { get; set; }
+    [Parameter] public string? NewText { get; set; }
+    [Parameter] public int ContextLines { get; set; } = 3;
+
+    private List<DiffLine> Lines { get; set; } = [];
+    private List<DisplayLine> _display = [];
+
+    private sealed record DisplayLine(DiffLine? Line, bool IsSeparator);
+
+    protected override void OnParametersSet()
+    {
+        Lines = UnifiedDiff.Build(OldText ?? string.Empty, NewText ?? string.Empty);
+        _display = BuildDisplay(Lines, ContextLines);
+    }
+
+    private static List<DisplayLine> BuildDisplay(List<DiffLine> lines, int context)
+    {
+        var keep = new bool[lines.Count];
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Kind == DiffKind.Unchanged)
+                continue;
+
+            var from = Math.Max(0, i - context);
+            var to = Math.Min(lines.Count - 1, i + context);
+            for (var j = from; j <= to; j++)
+                keep[j] = true;
+        }
+
+        var display = new List<DisplayLine>();
+        var gap = false;
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (!keep[i])
+            {
+                gap = true;
+                continue;
+            }
+
+            if (gap && display.Count > 0)
+                display.Add(new DisplayLine(null, true));
+
+            gap = false;
+            display.Add(new DisplayLine(lines[i], false));
+        }
+
+        return display;
+    }
+
+    private static string KindClass(DiffKind kind) => kind switch
+    {
+        DiffKind.Added => "diff-added",
+        DiffKind.Removed => "diff-removed",
+        _ => "diff-same"
+    };
+
+    private static string Sign(DiffKind kind) => kind switch
+    {
+        DiffKind.Added => "+",
+        DiffKind.Removed => "-",
+        _ => " "
+    };
+}

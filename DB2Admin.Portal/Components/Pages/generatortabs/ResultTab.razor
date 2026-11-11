@@ -1,9 +1,159 @@
 ﻿@using static SQLAZOR.Services.GenerationState
 @inject ISchemaReaderService SchemaReader
+@inject IDeepCompileValidator Compiler
 @inject GenerationState _State
 @if (GeneratedFiles.Count > 0)
 {
 
+    @if (Validation is { } validation)
+    {
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card p-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="card-title text-primary mb-0">Generated code check</h5>
+                        <span class="status-badge @(validation.IsValid ? "status-completed" : "status-failed")">
+                            @(validation.IsValid ? "No syntax errors" : $"{validation.ErrorCount} error(s)")
+                        </span>
+                    </div>
+                    <p class="text-muted small mb-2">
+                        Parsed @validation.FilesChecked file(s) — C#, Razor <code>@@code</code> blocks, JSON, and project XML@(validation.FilesSkipped > 0 ? $"; skipped {validation.FilesSkipped} non-code file(s)" : ""). Razor markup itself is not compiled.
+                    </p>
+                    @if (validation.Diagnostics.Count > 0)
+                    {
+                        <ul class="list-group slim-scroll" style="max-height:220px; overflow-y:auto;">
+                            @foreach (var diagnostic in validation.Diagnostics)
+                            {
+                                <li class="list-group-item" style="cursor:pointer;" @onclick="() => SelectFile(diagnostic.FilePath)">
+                                    <div class="d-flex justify-content-between gap-3">
+                                        <span class="text-primary small">@diagnostic.FilePath@(diagnostic.Line > 0 ? $":{diagnostic.Line}" : "")</span>
+                                        @if (!string.IsNullOrEmpty(diagnostic.Id))
+                                        {
+                                            <span class="badge">@diagnostic.Id</span>
+                                        }
+                                    </div>
+                                    <div class="text-danger small">@diagnostic.Message</div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="card-title text-primary mb-0">Deep compile check</h5>
+                    @if (_deepReport is { } deep)
+                    {
+                        <span class="status-badge @(deep.IsValid ? "status-completed" : "status-failed")">
+                            @(deep.IsValid ? $"Build succeeded ({deep.WarningCount} warning(s))" : $"{deep.ErrorCount} error(s)")
+                        </span>
+                    }
+                </div>
+                <p class="text-muted small mb-2">
+                    Writes the generated project to a temporary folder and runs <code>dotnet build</code> —
+                    catches missing usings, unknown types, and wiring errors the parser cannot see. Requires
+                    the .NET SDK, and NuGet access the first time the generated project needs a package.
+                </p>
+
+                @if (!Compiler.CanCompile(GeneratedFiles))
+                {
+                    <p class="text-muted small mb-0">
+                        Deep check needs a generated <code>.csproj</code> — enable "Generate a full runnable project" and regenerate.
+                    </p>
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-secondary" @onclick="RunDeepCheckAsync" disabled="@_deepBusy">
+                            @(_deepBusy ? "Building…" : "Run deep check")
+                        </button>
+                        @if (_deepBusy)
+                        {
+                            <button class="btn btn-outline-danger" @onclick="StopDeepCheck">Stop</button>
+                        }
+                        @if (_deepReport is not null && !_deepBusy)
+                        {
+                            <button class="btn small" @onclick="() => _deepReport = null">Clear result</button>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_deepStatus))
+                {
+                    <div class="status-badge mt-2 @(_deepStatusIsError ? "status-failed" : "status-completed")">@_deepStatus</div>
+                }
+
+                @if (_deepReport is { Diagnostics.Count: > 0 })
+                {
+                    <ul class="list-group slim-scroll mt-2" style="max-height:260px; overflow-y:auto;">
+                        @foreach (var diagnostic in _deepReport.Diagnostics)
+                        {
+                            <li class="list-group-item" style="cursor:pointer;" @onclick="() => SelectFile(diagnostic.FilePath)">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <span class="text-primary small">@diagnostic.FilePath@(diagnostic.Line > 0 ? $":{diagnostic.Line}" : "")</span>
+                                    @if (!string.IsNullOrEmpty(diagnostic.Id))
+                                    {
+                                        <span class="badge">@diagnostic.Id</span>
+                                    }
+                                </div>
+                                <div class="@(diagnostic.Severity == ValidationSeverity.Warning ? "text-muted" : "text-danger") small">@diagnostic.Message</div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+
+
+    @if (PreviewFile is { } preview)
+    {
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card p-3">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+                        <h5 class="card-title text-primary mb-0">Generated page preview</h5>
+                        <span class="text-muted small">Rendered in a sandboxed iframe — no access to this app</span>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <select class="form-select form-select-sm" style="max-width:340px;"
+                                value="@preview.RelativePath" @onchange="OnPreviewChanged">
+                            @foreach (var file in HtmlFiles)
+                            {
+                                <option value="@file.RelativePath">@file.RelativePath</option>
+                            }
+                        </select>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadPreview">Reload</button>
+                        <span class="text-muted small">
+                            Self-contained HTML files (like <code>docs/index.html</code>) are previewed as-is;
+                            Razor pages need a real build.
+                        </span>
+                    </div>
+
+                    @if (preview.Content.Length > MaxPreviewChars)
+                    {
+                        <p class="text-muted small mb-0">
+                            This file is too large to preview inline (@((preview.Content.Length / 1024).ToString("N0")) KB) —
+                            use the file list below to inspect or download it.
+                        </p>
+                    }
+                    else
+                    {
+                        <iframe @key="_previewNonce" class="generated-preview"
+                                sandbox="allow-scripts"
+                                srcdoc="@PreviewHtml"
+                                title="Preview of @preview.RelativePath"></iframe>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 
     <div class="row">
         <div class="col-12">
@@ -41,11 +191,160 @@
 
 @code {
     [Parameter]
-    public List<GeneratedFile> GeneratedFiles { get; set; }
+    public List<GeneratedFile> GeneratedFiles { get; set; } = default!;
     [Parameter]
     public string? AppName { get; set; } = "SQLAZOR";
 
+    [Parameter]
+    public GeneratedCodeValidationReport? Validation { get; set; }
+
     private GeneratedFile? _selectedFile;
+
+    private const int MaxPreviewChars = 2_000_000;
+    private string? _previewPath;
+    private int _previewNonce;
+
+    private List<GeneratedFile> HtmlFiles => GeneratedFiles
+        .Where(f => f.RelativePath.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    private GeneratedFile? PreviewFile
+    {
+        get
+        {
+            var files = HtmlFiles;
+            return files.FirstOrDefault(f => string.Equals(f.RelativePath, _previewPath, StringComparison.OrdinalIgnoreCase))
+                ?? files.FirstOrDefault(f => f.RelativePath.EndsWith("docs/index.html", StringComparison.OrdinalIgnoreCase))
+                ?? files.FirstOrDefault();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        var files = HtmlFiles;
+        if (files.Count == 0)
+        {
+            _previewPath = null;
+            return;
+        }
+
+        if (files.All(f => !string.Equals(f.RelativePath, _previewPath, StringComparison.OrdinalIgnoreCase)))
+            _previewPath = PreviewFile?.RelativePath;
+    }
+
+    private void OnPreviewChanged(ChangeEventArgs e)
+    {
+        _previewPath = e.Value?.ToString();
+        _previewNonce++;
+    }
+
+    private void ReloadPreview() => _previewNonce++;
+
+    private string PreviewHtml
+    {
+        get
+        {
+            var content = PreviewFile?.Content ?? string.Empty;
+            var bodyEnd = content.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            return bodyEnd >= 0
+                ? content.Insert(bodyEnd, PreviewNavigationGuard)
+                : content + PreviewNavigationGuard;
+        }
+    }
+
+    // srcdoc links resolve against the host app, so a plain #anchor click would load the portal
+    // inside the iframe. Keep fragment navigation inside the preview and block everything else.
+    private const string PreviewNavigationGuard = """
+        <script>
+        (function () {
+            function scrollToHash(hash) {
+                var id = hash.slice(1);
+                if (!id) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+                var target = document.getElementById(id) || document.getElementsByName(id)[0];
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            document.addEventListener('click', function (event) {
+                var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                if (!link) return;
+                var href = link.getAttribute('href') || '';
+                if (href.charAt(0) === '#') {
+                    event.preventDefault();
+                    scrollToHash(href);
+                    return;
+                }
+                event.preventDefault();
+            }, true);
+        })();
+        </script>
+        """;
+
+    private bool _deepBusy;
+    private string? _deepStatus;
+    private bool _deepStatusIsError;
+    private GeneratedCodeValidationReport? _deepReport;
+    private CancellationTokenSource? _deepCts;
+
+    private void SelectFile(string relativePath)
+    {
+        var match = GeneratedFiles.FirstOrDefault(f => f.RelativePath.Equals(relativePath, StringComparison.OrdinalIgnoreCase));
+        if (match is not null)
+            _selectedFile = match;
+    }
+
+    private async Task RunDeepCheckAsync()
+    {
+        if (_deepBusy || !Compiler.CanCompile(GeneratedFiles))
+            return;
+
+        _deepBusy = true;
+        _deepReport = null;
+        _deepStatus = null;
+        _deepCts = new CancellationTokenSource();
+        StateHasChanged();
+
+        try
+        {
+            var snapshot = GeneratedFiles.ToList();
+            var report = await Compiler.CompileAsync(snapshot, _deepCts.Token);
+            _deepReport = report;
+            _deepStatusIsError = !report.IsValid;
+            _deepStatus = report.IsValid
+                ? $"Build succeeded: {report.FilesChecked} file(s), {report.WarningCount} warning(s)."
+                : $"Build failed: {report.ErrorCount} error(s), {report.WarningCount} warning(s).";
+        }
+        catch (OperationCanceledException)
+        {
+            _deepStatus = "Deep check cancelled.";
+            _deepStatusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _deepStatus = ex.Message;
+            _deepStatusIsError = true;
+        }
+        finally
+        {
+            _deepCts?.Dispose();
+            _deepCts = null;
+            _deepBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void StopDeepCheck() => _deepCts?.Cancel();
+
+    public void Dispose()
+    {
+        try
+        {
+            _deepCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _deepCts?.Dispose();
+    }
 
 
     private async Task DownloadZipAsync()

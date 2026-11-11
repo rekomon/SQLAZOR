@@ -1,0 +1,137 @@
+@if (Plan is not null && Plan.Changes.Count > 0)
+{
+    <div class="card p-3 mt-3 merge-panel">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="card-title text-primary mb-0">Regeneration changes</h6>
+            <span class="text-muted small">
+                @Plan.AddedCount new · @Plan.UpdatedCount updated · @Plan.ConflictCount conflict(s) · @Plan.RemovedCount removed
+            </span>
+        </div>
+        <p class="text-muted small mb-2">
+            Files you edited or added are detected by hash. Change a row to decide which version wins;
+            nothing is written until you apply.
+        </p>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="merge-file-list">
+                    @foreach (var change in Plan.Changes.Where(c => c.Kind != GenerationChangeKind.Unchanged))
+                    {
+                        <div class="merge-file @(_selectedPath == change.RelativePath ? "active" : "")"
+                             @onclick="() => Select(change.RelativePath)">
+                            <span class="badge @BadgeClass(change.Kind)">@Label(change.Kind)</span>
+                            <span class="merge-path">@change.RelativePath</span>
+                        </div>
+                    }
+                    @foreach (var file in Plan.UserOnlyFiles)
+                    {
+                        <div class="merge-file kept">
+                            <span class="badge">kept</span>
+                            <span class="merge-path">@file.RelativePath</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="col-md-8">
+                @if (SelectedChange is { } selected)
+                {
+                    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+                        <span class="text-primary small">@selected.RelativePath</span>
+
+                        @if (selected.Kind is GenerationChangeKind.Conflict or GenerationChangeKind.Removed)
+                        {
+                            <label class="small">
+                                <input type="radio" name="merge-choice-@selected.RelativePath"
+                                       checked="@(!selected.UseGenerator)"
+                                       @onchange="() => SetChoice(selected, false)" />
+                                @(selected.Kind == GenerationChangeKind.Removed ? "Keep file" : "Keep current")
+                            </label>
+                            <label class="small">
+                                <input type="radio" name="merge-choice-@selected.RelativePath"
+                                       checked="@selected.UseGenerator"
+                                       @onchange="() => SetChoice(selected, true)" />
+                                @(selected.Kind == GenerationChangeKind.Removed ? "Remove file" : "Use generated")
+                            </label>
+                        }
+                        else if (selected.Kind == GenerationChangeKind.LocalEdit)
+                        {
+                            <span class="text-muted small">Locally edited — your version is kept.</span>
+                        }
+                        else
+                        {
+                            <span class="text-muted small">Will be written.</span>
+                        }
+                    </div>
+
+                    <DiffView OldText="@(selected.CurrentFile?.Content)"
+                              NewText="@(selected.Kind == GenerationChangeKind.Removed ? "" : selected.GeneratorFile?.Content)" />
+                }
+                else
+                {
+                    <p class="text-muted small">Select a file to see its diff.</p>
+                }
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 justify-content-end mt-3">
+            <button class="btn btn-outline-secondary" @onclick="OnCancel">Cancel</button>
+            <button class="btn btn-primary" @onclick="OnApply">Apply changes</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public GenerationMergePlan? Plan { get; set; }
+    [Parameter] public EventCallback OnApply { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string? _selectedPath;
+
+    private GenerationFileChange? SelectedChange =>
+        Plan?.Changes.FirstOrDefault(c => string.Equals(c.RelativePath, _selectedPath, StringComparison.OrdinalIgnoreCase))
+        ?? Plan?.Changes.FirstOrDefault(c => c.Kind != GenerationChangeKind.Unchanged);
+
+    protected override void OnParametersSet()
+    {
+        if (Plan is null)
+        {
+            _selectedPath = null;
+            return;
+        }
+
+        if (_selectedPath is null ||
+            !Plan.Changes.Any(c => string.Equals(c.RelativePath, _selectedPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedPath = Plan.Changes
+                .FirstOrDefault(c => c.Kind is GenerationChangeKind.Conflict or GenerationChangeKind.Removed)
+                ?.RelativePath
+                ?? Plan.Changes.FirstOrDefault(c => c.Kind != GenerationChangeKind.Unchanged)?.RelativePath;
+        }
+    }
+
+    private void Select(string path) => _selectedPath = path;
+
+    private void SetChoice(GenerationFileChange change, bool useGenerator)
+    {
+        change.UseGenerator = useGenerator;
+        StateHasChanged();
+    }
+
+    private static string Label(GenerationChangeKind kind) => kind switch
+    {
+        GenerationChangeKind.Added => "new",
+        GenerationChangeKind.Updated => "updated",
+        GenerationChangeKind.Conflict => "conflict",
+        GenerationChangeKind.Removed => "removed",
+        GenerationChangeKind.LocalEdit => "kept",
+        _ => "same"
+    };
+
+    private static string BadgeClass(GenerationChangeKind kind) => kind switch
+    {
+        GenerationChangeKind.Conflict => "status-failed",
+        GenerationChangeKind.Removed => "status-failed",
+        GenerationChangeKind.Updated => "status-completed",
+        _ => ""
+    };
+}

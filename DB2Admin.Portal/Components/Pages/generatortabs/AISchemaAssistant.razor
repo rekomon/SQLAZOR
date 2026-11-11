@@ -1,45 +1,153 @@
 ﻿@using static SQLAZOR.Services.GenerationState
 @inject ISchemaReaderService SchemaReader
 @inject GenerationState _State
-@inject IOllamaService Ollama
+@inject IChatProviderService Chat
+@inject IChatSessionStore ChatStore
+@inject IGeneratedCodeValidator Validator
+@inject IJSRuntime _JSRuntime
+
 <div class="row">
     <div class="col-12">
         <div class="card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="card-title text-primary mb-0">AI schema assistant</h5><span class="text-muted small">(Ollama, optional)</span>
+                <h5 class="card-title text-primary mb-0">AI schema assistant</h5><span class="text-muted small">(Ollama, OpenRouter or DeepSeek, optional)</span>
             </div>
             <p class="text-muted">
                 Ask questions about the loaded schema — relationships, what a table is for, or ask it
-                to write a T-SQL or LINQ query. Runs against your own LLM model instance; nothing is sent
-                anywhere else.
+                to write a T-SQL or LINQ query. Ollama runs against your own model instance. OpenRouter
+                exposes a curated list of free cloud models. DeepSeek is a cloud API, so the schema text
+                (table and column names) leaves this machine with either cloud provider — query results
+                and row data never do. Conversations are saved locally under your app data folder.
             </p>
 
-            <div class="row">
-                <div class="col-4">
-                    <label class="form-label" for="ollamaEndpoint">Ollama endpoint</label>
-                    <MudInput T="string" id="ollamaEndpoint" @bind-Value="_State.OllamaEndpoint" class="w-100"
-                              Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Ollama endpoint"></MudInput>
-                </div>
-                <div class="col-4">
-                    <label class="form-label" for="ollamaModel">Model</label>
-                    <MudSelect T="string"
-                               @bind-Value="_State.OllamaModel" class="w-100" 
-                               Variant="MudBlazor.Variant.Outlined" Margin="Margin.Dense" Placeholder="Database">
-                        @foreach (var model in ollamaModels)
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label" for="aiProvider">Provider</label>
+                    <select id="aiProvider" class="form-select form-select-sm"
+                            @bind="_State.AiProvider" @bind:after="OnProviderChangedAsync" disabled="@_chatBusy">
+                        @foreach (var provider in AiProviderCatalog.All)
                         {
-                            <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
+                            <option value="@provider.Id">@provider.DisplayName</option>
                         }
-                    </MudSelect>
+                    </select>
                 </div>
-                <div class="align-self-end col-4">
-                    <MudButton class="btn btn-outline-secondary" 
-                    @onclick="TestOllamaConnectionAsync" disabled="@_chatBusy">Test connection</MudButton>
+                <div class="col-md-5">
+                    <label class="form-label" for="aiEndpoint">Endpoint</label>
+                    <input id="aiEndpoint" class="form-control form-control-sm"
+                           placeholder="@ActiveProvider.DefaultEndpoint"
+                           @bind="_State.CurrentAiConfig.Endpoint" @bind:after="SaveAiSettingsAsync" />
+                </div>
+                <div class="col-md-4 align-self-end">
+                    <MudButton class="btn btn-outline-secondary" id="aiTestConnection"
+                               @onclick="TestAiConnectionAsync" disabled="@_chatBusy">Test connection</MudButton>
                 </div>
             </div>
 
+            <div class="row g-2 mt-1">
+                <div class="col-md-4">
+                    <label class="form-label" for="aiModel">Model</label>
+                    <select id="aiModel" class="form-select form-select-sm"
+                            @bind="_State.CurrentAiConfig.Model" @bind:after="SaveAiSettingsAsync" disabled="@_chatBusy">
+                        @foreach (var model in ModelOptions())
+                        {
+                            <option value="@model.Id">@model.Name</option>
+                        }
+                    </select>
+                </div>
+                @if (ActiveProvider.RequiresApiKey)
+                {
+                    <div class="col-md-8">
+                        <label class="form-label" for="aiApiKey">API key</label>
+                        <input id="aiApiKey" type="password" class="form-control form-control-sm"
+                               autocomplete="off" placeholder="sk-…"
+                               @bind="_State.CurrentAiConfig.ApiKey" @bind:after="SaveAiSettingsAsync" />
+                        <div class="text-muted small mt-1">
+                            Stored only in %LOCALAPPDATA%\SQLAZOR\ai-settings.json — never in conversations or exports.
+                        </div>
+                        @if (ActiveProvider.Id == AiProviderCatalog.OpenRouter)
+                        {
+                            <div class="text-muted small mt-1">
+                                Free models share OpenRouter's free-tier rate limit. If one model is busy or
+                                rate-limited, switch to another free model and try again. Free models may use
+                                your prompts for training — check OpenRouter's privacy settings before sending schema text.
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
 
-             <div class="row">
-                <div class="col-12"> 
+            <div class="row g-2 mt-1">
+                <div class="col-md-6">
+                    <label class="form-label" for="chatSession">Conversation</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <select id="chatSession" class="form-select" style="min-width:200px; flex:1 1 200px;"
+                                value="@_State.CurrentChatSessionId"
+                                @onchange="OnSessionChangedAsync" disabled="@_chatBusy">
+                            <option value="">Unsaved conversation</option>
+                            @foreach (var session in _State.ChatSessions)
+                            {
+                                <option value="@session.Id">@SessionLabel(session)</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary" title="New conversation"
+                                @onclick="NewChatAsync" disabled="@_chatBusy">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary"
+                                title="@(CurrentSessionIsPinned ? "Unpin conversation" : "Pin conversation")"
+                                @onclick="TogglePinAsync"
+                                disabled="@(_chatBusy || _State.CurrentChatSessionId is null)">
+                            <i class="bi @(CurrentSessionIsPinned ? "bi-pin-angle-fill" : "bi-pin-angle")"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary" title="Rename conversation"
+                                @onclick="StartRename"
+                                disabled="@(_chatBusy || _State.ChatHistory.Count == 0)">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" title="Delete saved conversation"
+                                @onclick="DeleteChatAsync" disabled="@(_chatBusy || _State.CurrentChatSessionId is null)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-1">
+                        <input class="form-control form-control-sm" placeholder="Search saved conversations…"
+                               @bind="_sessionSearch" @bind:event="oninput" @bind:after="SearchSessionsAsync"
+                               disabled="@_chatBusy" />
+                        @if (!string.IsNullOrWhiteSpace(_sessionSearch))
+                        {
+                            <button class="btn small" @onclick="ClearSearchAsync" disabled="@_chatBusy">Clear</button>
+                        }
+                    </div>
+
+                    @if (_renaming)
+                    {
+                        <div class="d-flex gap-2 mt-1">
+                            <input class="form-control form-control-sm" placeholder="Conversation title"
+                                   @bind="_renameText" @bind:event="oninput" />
+                            <button class="btn small" @onclick="RenameChatAsync" disabled="@_chatBusy">Save</button>
+                            <button class="btn small" @onclick="CancelRename" disabled="@_chatBusy">Cancel</button>
+                        </div>
+                    }
+                </div>
+                <div class="col-md-6 align-self-end">
+                    <div class="d-flex flex-wrap gap-2 justify-content-md-end">
+                        <button class="btn small" @onclick="ExportMarkdownAsync"
+                                disabled="@(_chatBusy || _State.ChatHistory.Count == 0)">Export .md</button>
+                        <button class="btn small" @onclick="ExportHtmlAsync"
+                                disabled="@(_chatBusy || _State.ChatHistory.Count == 0)">Export .html</button>
+                        <button class="btn small" @onclick="ExportJsonAsync"
+                                disabled="@(_chatBusy || _State.ChatHistory.Count == 0)">Export .json</button>
+                        <button class="btn small" @onclick="ExportZipAsync"
+                                disabled="@(_chatBusy || _State.ChatHistory.Count == 0)">Export .zip</button>
+                        <InputFile OnChange="ImportSessionAsync" accept=".json,application/json"
+                                   class="form-control form-control-sm" style="max-width:210px;"></InputFile>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-2">
+                <div class="col-12">
                     @if (!string.IsNullOrEmpty(_ollamaStatusMessage))
                     {
                         <div class="status-badge @(_ollamaStatusIsError ? "status-failed" : "status-completed")">@_ollamaStatusMessage</div>
@@ -49,101 +157,416 @@
                         @if (_State.ChatHistory.Count == 0)
                         {
                             <p class="text-muted small">No messages yet — ask something like "which tables reference Customers?" or "اكتبلي كويري لأكتر ١٠ عملاء مبيعًا".</p>
+                            <div class="chat-quick-prompts">
+                                @foreach (var quick in QuickPrompts)
+                                {
+                                    <button type="button" class="btn small"
+                                            @onclick="() => UseQuickPromptAsync(quick.Prompt)"
+                                            disabled="@(_chatBusy || _State.Schema is null)">
+                                        <i class="bi bi-lightning-charge"></i> @quick.Label
+                                    </button>
+                                }
+                            </div>
                         }
-                        @foreach (var (msg, mi) in _State.ChatHistory.Select((m, idx) => (m, idx)))
+                        @foreach (var msg in _State.ChatHistory)
                         {
-                            <div class="chat-bubble @(msg.Role == "user" ? "chat-user" : "chat-assistant") @(msg.IsError ? "chat-error" : "")">
+                            var isRtl = ChatTextDirection.ForMessage(msg.Content);
+                            <div class="@BubbleClasses(msg, isRtl)" dir="@RtlDirection(isRtl)" @key="msg.Id">
                                 <div class="chat-role">
                                     @if (msg.Role == "user")
                                     {
                                         <span>You</span>
-                                    } 
+                                    }
                                     else
                                     {
                                         <i class="bi bi-robot"></i>
                                         <span> Assistant</span>
                                     }
-                                   
-                                    </div>
+                                    <span class="chat-time">@msg.CreatedAt.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                                </div>
                                 <div class="chat-content">
-                                    @foreach (var seg in ExtractChatBlocks(msg.Content))
+                                    @foreach (var seg in ChatContentParser.Extract(msg.Content))
                                     {
                                         @if (!seg.IsCode)
                                         {
-                                            <span>@((MarkupString)EncodeChatText(seg.Text))</span>
+                                            if (msg.Role == "user")
+                                            {
+                                                <div class="chat-text">@seg.Text</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="chat-md">@((MarkupString)ChatMarkdownRenderer.ToHtml(seg.Text, isRtl))</div>
+                                            }
                                         }
                                         else
                                         {
-                                            var blockKey = $"{mi}:{seg.Index}";
-                                            <ChatCodeBlock Code="@seg.Text"
-                                                           IsSql="@LooksLikeSql(seg.Language, seg.Text)"
-                                                           IsRunning="@_runningQueryKeys.Contains(blockKey)"
-                                                           Result="@GetQueryResult(blockKey)"
-                                                           OnRun="@(() => RunQueryAsync(mi, seg.Index, seg.Text))" />
+                                            var blockKey = $"{msg.Id}:{seg.Index}";
+                                            if (seg.Language.Equals("chart", StringComparison.OrdinalIgnoreCase) &&
+                                                 ChatChartParser.TryParse(seg.Text, out var chartSpec))
+                                            {
+                                                <ChatChart Spec="chartSpec" Height="280" @key="blockKey" />
+                                            }
+                                            else
+                                            {
+                                                <ChatCodeBlock Code="@seg.Text"
+                                                               FileName="@ChatExporter.SuggestedFileName(seg, seg.Index + 1)"
+                                                               IsSql="@ChatContentParser.LooksLikeSql(seg.Language, seg.Text)"
+                                                               IsRunning="@_runningQueryKeys.Contains(blockKey)"
+                                                               Result="@GetQueryResult(blockKey)"
+                                                               OnRun="@(() => RunQueryAsync(msg.Id, seg.Index, seg.Text))"
+                                                               OnAddToGenerated="@(() => AddToGeneratedAsync(seg))"
+                                                               @key="blockKey" />
+                                            }
                                         }
                                     }
                                 </div>
+                                @if (msg.Attachments.Count > 0)
+                                {
+                                    <div class="chat-attachment-list">
+                                        @foreach (var attachment in msg.Attachments)
+                                        {
+                                            if (attachment.IsImage)
+                                            {
+                                                <img class="chat-image" src="@ImageDataUrl(attachment)"
+                                                     alt="@attachment.FileName" title="@attachment.FileName" />
+                                            }
+                                            else
+                                            {
+                                                <span class="chat-chip" title="@attachment.FileName">
+                                                    <i class="bi bi-paperclip"></i> @attachment.FileName
+                                                    <span class="text-muted">(@FormatSize(attachment.SizeBytes))</span>
+                                                </span>
+                                            }
+                                        }
+                                    </div>
+                                }
                             </div>
                         }
                         @if (_chatBusy)
                         {
-                            <div class="chat-bubble chat-assistant"><div class="chat-role">Assistant</div><div class="chat-content text-muted">thinking…</div></div>
+                            <div class="chat-bubble chat-assistant">
+                                <div class="chat-role">Assistant</div>
+                                <div class="chat-content text-muted">thinking…</div>
+                            </div>
                         }
                     </div>
-
-
                 </div>
             </div>
+
             <div class="row">
                 <div class="col-12">
+                    <div class="chat-attach-bar">
+                        <InputFile OnChange="OnAttachmentsSelectedAsync" multiple
+                                   accept=".cs,.razor,.sql,.json,.html,.css,.js,.ts,.xml,.csproj,.md,.txt,.yml,.yaml,.config,.http,text/*"
+                                   class="form-control form-control-sm" style="max-width:260px;"></InputFile>
+                        <InputFile OnChange="OnImagesSelectedAsync" multiple
+                                   accept="image/png,image/jpeg,image/webp"
+                                   class="form-control form-control-sm" style="max-width:200px;"></InputFile>
+                        <select class="form-select form-select-sm" style="max-width:260px;"
+                                @bind="_generatedFileToAttach">
+                            <option value="">Attach a generated file…</option>
+                            @foreach (var file in _State.GeneratedFiles)
+                            {
+                                <option value="@file.RelativePath">@file.RelativePath</option>
+                            }
+                        </select>
+                        <button class="btn small" @onclick="AttachGeneratedFileAsync"
+                                disabled="@(string.IsNullOrEmpty(_generatedFileToAttach) || _chatBusy)">Attach</button>
+                        <span class="text-muted small">Max @MaxAttachments files — text @(MaxAttachmentBytes / 1024) KB, images up to @(MaxImageBytes / (1024 * 1024)) MB each</span>
+                    </div>
+
+                    @if (_State.PendingChatAttachments.Count > 0)
+                    {
+                        <div class="chat-attachment-list">
+                            @foreach (var attachment in _State.PendingChatAttachments)
+                            {
+                                <span class="chat-chip @(attachment.IsImage ? "chat-chip-image" : null)" title="@attachment.FileName">
+                                    @if (attachment.IsImage)
+                                    {
+                                        <img class="chat-chip-thumb" src="@ImageDataUrl(attachment)" alt="@attachment.FileName" />
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-paperclip"></i>
+                                    }
+                                    @attachment.FileName
+                                    <span class="text-muted">(@FormatSize(attachment.SizeBytes))</span>
+                                    <button class="chat-chip-remove" title="Remove"
+                                            @onclick="() => _State.PendingChatAttachments.Remove(attachment)">×</button>
+                                </span>
+                            }
+                        </div>
+                    }
+
                     <div class="chat-input-area">
                         <input type="text" class="form-control" id="chatInput"
                                @bind="_chatInput" @bind:event="oninput"
                                @onkeydown="OnChatKeyDown" disabled="@_chatBusy" placeholder="Ask me anything...">
-                        <button class="btn-send" id="chatSend" @onclick="SendChatAsync" disabled="@(_chatBusy || string.IsNullOrWhiteSpace(_chatInput))"
-                        ><i class="bi bi-send"></i></button>
-                        @if (_State.ChatHistory.Count > 0)
+                        @if (_chatBusy)
                         {
-                            <button class="btn small" @onclick="ClearChat" disabled="@_chatBusy">Clear Chat</button>
+                            <button class="btn btn-outline-danger" @onclick="StopStreaming" title="Stop generating">
+                                <i class="bi bi-stop-fill"></i>
+                            </button>
                         }
+                        <button class="btn-send" id="chatSend" @onclick="SendChatAsync"
+                                disabled="@(_chatBusy || string.IsNullOrWhiteSpace(_chatInput))">
+                            <i class="bi bi-send"></i>
+                        </button>
                     </div>
-                   
                 </div>
             </div>
 
-
+            <div class="row">
+                <div class="col-12">
+                    <AiFileEditPanel />
+                </div>
+            </div>
         </div>
-
     </div>
 </div>
 
 
-@code{
+@code {
+    private const int MaxAttachments = 5;
+    private const long MaxAttachmentBytes = 64 * 1024;
+    private const long MaxImageBytes = 2 * 1024 * 1024;
+    private const int MaxPromptMessages = 40;
+    private const long MaxImportBytes = 4 * 1024 * 1024;
+
     private bool _chatBusy;
     private string _chatInput = string.Empty;
     private string? _ollamaStatusMessage;
     private bool _ollamaStatusIsError;
-    private string FullResponse = "";
-    private bool IsStreaming = false;
+    private string _generatedFileToAttach = string.Empty;
 
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _runningQueryKeys = new(StringComparer.Ordinal);
-    
-    private static readonly List<(string Id, string Name)> ollamaModels = new()
-    {
-        ("gpt-oss:120b-cloud", "Chat GPT"),
-        ("nemotron-3-super:cloud", "Nvidia Nemotron 3 Super"),
-        ("minimax-m3:cloud", "MiniMax"),
-        ("gemma4:31b-cloud", "Google Gemma 4"),
 
-    };
+    private DateTimeOffset _sessionCreatedAt = DateTimeOffset.Now;
+    private bool _autoLoadAttempted;
+    private bool _disposed;
 
-    private async Task TestOllamaConnectionAsync()
+    private string _sessionSearch = string.Empty;
+    private string _renameText = string.Empty;
+    private bool _renaming;
+
+    private bool CurrentSessionIsPinned =>
+        _State.ChatSessions.FirstOrDefault(s => s.Id == _State.CurrentChatSessionId)?.Pinned == true;
+
+    private AiProviderInfo ActiveProvider => AiProviderCatalog.Get(_State.AiProvider);
+
+    private IEnumerable<AiModelOption> ModelOptions()
     {
-        if (string.IsNullOrWhiteSpace(_State.OllamaEndpoint) || string.IsNullOrWhiteSpace(_State.OllamaModel))
+        var models = ActiveProvider.Models;
+        var current = _State.CurrentAiConfig.Model;
+
+        // Keep a model that was saved by an older build selectable instead of showing a blank field.
+        return models.Any(m => string.Equals(m.Id, current, StringComparison.OrdinalIgnoreCase))
+            ? models
+            : models.Append(new AiModelOption(current, $"{current} (saved)"));
+    }
+
+    private static readonly (string Label, string Prompt)[] QuickPrompts =
+    [
+        ("Schema tour", "Give me a quick tour of this schema: the core tables, how they relate, and what to watch out for."),
+        ("Relationship map", "List every foreign-key relationship in a Markdown table, ordered by parent table."),
+        ("Top 10 by sales", "Write a T-SQL query for the top 10 customers by total sales, then explain what the result tells us."),
+        ("Index review", "Review the columns, primary keys, and foreign keys. Use a table to show missing or redundant indexes.")
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _State.OnChange += HandleStateChanged;
+        await RefreshSessionsAsync();
+    }
+
+    private void HandleStateChanged()
+    {
+        if (_autoLoadAttempted || !_State.Conn.IsConnected)
+            return;
+
+        _autoLoadAttempted = true;
+        _ = InvokeAsync(TryAutoLoadSessionAsync);
+    }
+
+    private async Task TryAutoLoadSessionAsync()
+    {
+        if (_State.ChatHistory.Count > 0)
+            return;
+
+        await RefreshSessionsAsync();
+
+        var key = _State.Conn.DatabaseKey;
+        var match = _State.ChatSessions.FirstOrDefault(
+            s => string.Equals(s.DatabaseKey, key, StringComparison.OrdinalIgnoreCase));
+
+        if (match is null)
+            return;
+
+        var session = await ChatStore.LoadAsync(match.Id);
+        if (session is null)
+            return;
+
+        ApplySession(session);
+        StateHasChanged();
+    }
+
+    private async Task RefreshSessionsAsync()
+    {
+        try
         {
-            _ollamaStatusMessage = "Enter both an endpoint and a model name.";
-            _ollamaStatusIsError = true;
+            var previous = _State.ChatSessions;
+            var sessions = (await ChatStore.ListAsync(_sessionSearch)).ToList();
+
+            // Keep the open conversation in the dropdown even when it doesn't match the search,
+            // so filtering never makes it look like an unsaved chat.
+            if (_State.CurrentChatSessionId is { } currentId && sessions.All(s => s.Id != currentId))
+            {
+                var open = previous.FirstOrDefault(s => s.Id == currentId);
+                if (open is not null)
+                    sessions.Insert(0, open);
+            }
+
+            _State.ChatSessions = sessions;
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Saved conversations could not be read: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task SearchSessionsAsync()
+    {
+        await RefreshSessionsAsync();
+        await SafeStateHasChangedAsync();
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        _sessionSearch = string.Empty;
+        await SearchSessionsAsync();
+    }
+
+    private static string SessionLabel(ChatSessionSummary session)
+    {
+        var pin = session.Pinned ? "[pinned] " : "";
+        var database = string.IsNullOrWhiteSpace(session.DatabaseName) ? "" : $" · {session.DatabaseName}";
+        return $"{pin}{session.Title}{database} — {session.UpdatedAt.ToLocalTime():MMM d, HH:mm} ({session.MessageCount})";
+    }
+
+    private async Task TogglePinAsync()
+    {
+        if (_State.CurrentChatSessionId is null)
+            return;
+
+        try
+        {
+            var session = await ChatStore.LoadAsync(_State.CurrentChatSessionId);
+            if (session is null)
+            {
+                ShowStatus("That conversation could not be loaded.", isError: true);
+                return;
+            }
+
+            session.Pinned = !session.Pinned;
+            await ChatStore.SaveAsync(session);
+            await RefreshSessionsAsync();
+            ShowStatus(session.Pinned ? "Conversation pinned." : "Conversation unpinned.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Could not update the pin: {ex.Message}", isError: true);
+        }
+
+        await SafeStateHasChangedAsync();
+    }
+
+    private void StartRename()
+    {
+        _renameText = _State.ChatSessionTitle == "New conversation" ? string.Empty : _State.ChatSessionTitle;
+        _renaming = true;
+    }
+
+    private void CancelRename() => _renaming = false;
+
+    private async Task RenameChatAsync()
+    {
+        var title = _renameText.Trim();
+        if (title.Length == 0)
+        {
+            ShowStatus("Enter a title for the conversation.", isError: true);
+            return;
+        }
+
+        _State.ChatSessionTitle = title;
+        _renaming = false;
+
+        if (_State.CurrentChatSessionId is null)
+        {
+            ShowStatus("Title updated - it will be saved with the next message.", isError: false);
+            return;
+        }
+
+        try
+        {
+            var session = await ChatStore.LoadAsync(_State.CurrentChatSessionId);
+            if (session is null)
+            {
+                ShowStatus("That conversation could not be loaded.", isError: true);
+                return;
+            }
+
+            session.Title = title;
+            await ChatStore.SaveAsync(session);
+            await RefreshSessionsAsync();
+            ShowStatus("Conversation renamed.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Could not rename the conversation: {ex.Message}", isError: true);
+        }
+
+        await SafeStateHasChangedAsync();
+    }
+
+    private void ShowStatus(string message, bool isError)
+    {
+        _ollamaStatusMessage = message;
+        _ollamaStatusIsError = isError;
+    }
+
+    private async Task OnProviderChangedAsync()
+    {
+        _State.AiProvider = AiProviderCatalog.Get(_State.AiProvider).Id;
+        _ollamaStatusMessage = null;
+        await SaveAiSettingsAsync();
+        StateHasChanged();
+    }
+
+    private async Task SaveAiSettingsAsync()
+    {
+        try
+        {
+            await _State.SaveAiSettingsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"AI settings could not be saved: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task TestAiConnectionAsync()
+    {
+        var config = _State.CurrentAiConfig;
+        if (string.IsNullOrWhiteSpace(config.Endpoint) || string.IsNullOrWhiteSpace(config.Model))
+        {
+            ShowStatus("Enter both an endpoint and a model name.", isError: true);
+            return;
+        }
+
+        if (ActiveProvider.RequiresApiKey && string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            ShowStatus($"Add a {ActiveProvider.DisplayName} API key first.", isError: true);
             return;
         }
 
@@ -151,10 +574,11 @@
         _ollamaStatusMessage = null;
         StateHasChanged();
 
-        var (success, error) = await Ollama.TestConnectionAsync(_State.OllamaEndpoint.Trim(), _State.OllamaModel.Trim());
+        var (success, error) = await Chat.TestConnectionAsync(config);
         _chatBusy = false;
-        _ollamaStatusMessage = success ? $"Connected to {_State.OllamaModel}." : error;
-        _ollamaStatusIsError = !success;
+        ShowStatus(
+            success ? $"Connected to {config.Model} via {ActiveProvider.DisplayName}." : error ?? "Connection failed.",
+            isError: !success);
     }
 
     private async Task OnChatKeyDown(KeyboardEventArgs e)
@@ -165,75 +589,87 @@
         }
     }
 
-    // private async Task SendChatAsync()
-    // {
-    //     if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
-
-    //     var question = _chatInput.Trim();
-    //     _chatInput = string.Empty;
-    //     _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
-
-    //     _chatBusy = true;
-    //     StateHasChanged();
-
-    //     try
-    //     {
-    //         var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
-    //         var reply = await Ollama.ChatAsync(
-    //             _State.OllamaEndpoint.Trim(),
-    //             _State.OllamaModel.Trim(),
-    //             schemaContext,
-    //             _State.ChatHistory);
-
-    //         _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = reply });
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         _State.ChatHistory.Add(new ChatMessage { Role = "assistant", Content = ex.Message, IsError = true });
-    //     }
-    //     finally
-    //     {
-    //         _chatBusy = false;
-    //     }
-    // }
-
     private async Task SendChatAsync()
     {
+        if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy)
+            return;
+
+        var config = _State.CurrentAiConfig;
+        if (ActiveProvider.RequiresApiKey && string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            ShowStatus($"Add a {ActiveProvider.DisplayName} API key above before sending a message.", isError: true);
+            return;
+        }
+
+        if (!ActiveProvider.SupportsImages && _State.PendingChatAttachments.Any(a => a.IsImage))
+        {
+            ShowStatus(
+                $"{ActiveProvider.DisplayName} does not accept images. Remove them, or switch to Ollama with a vision model (e.g. LLaVA).",
+                isError: true);
+            return;
+        }
+
         ChatMessage? assistantMessage = null;
+        _cts = new CancellationTokenSource();
+
         try
         {
-            if (_State.Schema is null || string.IsNullOrWhiteSpace(_chatInput) || _chatBusy) return;
-
             var question = _chatInput.Trim();
             _chatInput = string.Empty;
-            _State.ChatHistory.Add(new ChatMessage { Role = "user", Content = question });
 
-            var requestHistory = _State.ChatHistory.ToList();
+            var userMessage = new ChatMessage
+            {
+                Role = "user",
+                Content = question,
+                Attachments = _State.PendingChatAttachments.ToList()
+            };
+            _State.PendingChatAttachments.Clear();
+            _State.ChatHistory.Add(userMessage);
+
+            if (_State.ChatSessionTitle == "New conversation")
+                _State.ChatSessionTitle = TitleFrom(question);
+
+            var requestHistory = _State.ChatHistory
+                .Select(m => new ChatMessage
+                {
+                    Id = m.Id,
+                    Role = m.Role,
+                    Content = ChatContentParser.ExpandForPrompt(m),
+                    CreatedAt = m.CreatedAt,
+                    Attachments = m.Attachments.Where(a => a.IsImage).ToList()
+                })
+                .TakeLast(MaxPromptMessages)
+                .ToList();
 
             assistantMessage = new ChatMessage { Role = "assistant", Content = string.Empty };
             _State.ChatHistory.Add(assistantMessage);
 
             _chatBusy = true;
+            _ollamaStatusMessage = null;
             StateHasChanged();
 
             var schemaContext = SchemaContextBuilder.Build(_State.Schema, _State.Procedures);
 
-            await foreach (var chunk in Ollama.ChatStreamAsync(
-                _State.OllamaEndpoint.Trim(),
-                _State.OllamaModel.Trim(),
+            await foreach (var chunk in Chat.ChatStreamAsync(
+                config,
                 schemaContext,
-                requestHistory))
+                requestHistory,
+                _cts.Token))
             {
-                if (assistantMessage is not null)
-                {
-                    assistantMessage.Content = (assistantMessage.Content ?? string.Empty) + chunk;
-                    await InvokeAsync(StateHasChanged);
-                }
+                assistantMessage.Content = (assistantMessage.Content ?? string.Empty) + chunk;
+                await SafeStateHasChangedAsync();
             }
 
-            if (assistantMessage is not null && assistantMessage.Content.Length == 0)
-            {
+            if (assistantMessage.Content.Length == 0)
                 assistantMessage.Content = "(empty response)";
+        }
+        catch (OperationCanceledException)
+        {
+            if (assistantMessage is not null)
+            {
+                assistantMessage.Content = string.IsNullOrEmpty(assistantMessage.Content)
+                    ? "(stopped)"
+                    : assistantMessage.Content + "\n\n*[stopped]*";
             }
         }
         catch (Exception ex)
@@ -245,89 +681,440 @@
                     ? ex.Message
                     : assistantMessage.Content + $"\n\n[Error: {ex.Message}]";
             }
+            ShowStatus(ex.Message, isError: true);
         }
         finally
         {
+            _cts?.Dispose();
+            _cts = null;
             _chatBusy = false;
+            await SafeStateHasChangedAsync();
+            await PersistChatAsync();
         }
     }
 
-    private void ClearChat() => _State.ChatHistory.Clear();
+    private void StopStreaming() => _cts?.Cancel();
 
-    private sealed record ChatContentSegment(bool IsCode, string Language, string Text, int Index);
-
-    /// <summary>
-    /// Splits a chat message on ```fenced``` code blocks. Text segments are returned as-is
-    /// (HTML-encoded later by the caller); code segments have their optional leading language
-    /// tag stripped and are indexed so a "Run query" click can be traced back to the exact block.
-    /// </summary>
-    private static List<ChatContentSegment> ExtractChatBlocks(string content)
+    private async Task PersistChatAsync()
     {
-        var parts = content.Split("```");
-        var result = new List<ChatContentSegment>();
-        var codeIndex = 0;
+        if (_State.ChatHistory.Count == 0)
+            return;
 
-        for (int i = 0; i < parts.Length; i++)
+        try
         {
-            var isCode = i % 2 == 1;
-            var text = parts[i];
+            var session = BuildSession();
+            await ChatStore.SaveAsync(session);
 
-            if (!isCode)
+            _State.CurrentChatSessionId = session.Id;
+            _State.ChatSessionTitle = session.Title;
+            await RefreshSessionsAsync();
+            await SafeStateHasChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Conversation could not be saved: {ex.Message}", isError: true);
+        }
+    }
+
+    private ChatSession BuildSession() => new()
+    {
+        Id = _State.CurrentChatSessionId ?? Guid.NewGuid().ToString("N"),
+        Title = string.IsNullOrWhiteSpace(_State.ChatSessionTitle) ? "New conversation" : _State.ChatSessionTitle,
+        DatabaseKey = _State.Conn.DatabaseKey,
+        DatabaseName = _State.Conn.Database,
+        Provider = _State.AiProvider,
+        Model = _State.CurrentAiConfig.Model,
+        Endpoint = _State.CurrentAiConfig.Endpoint,
+        Pinned = CurrentSessionIsPinned,
+        CreatedAt = _sessionCreatedAt,
+        UpdatedAt = DateTimeOffset.Now,
+        Messages = _State.ChatHistory
+    };
+
+    private void ApplySession(ChatSession session)
+    {
+        _State.CurrentChatSessionId = session.Id;
+        _State.ChatSessionTitle = session.Title;
+        _sessionCreatedAt = session.CreatedAt;
+        _State.ChatHistory = session.Messages;
+        _State.ChatQueryResults.Clear();
+        _State.PendingChatAttachments.Clear();
+    }
+
+    private async Task OnSessionChangedAsync(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            NewChat();
+            return;
+        }
+
+        var session = await ChatStore.LoadAsync(id);
+        if (session is null)
+        {
+            ShowStatus("That conversation could not be loaded.", isError: true);
+            return;
+        }
+
+        ApplySession(session);
+        _ollamaStatusMessage = null;
+    }
+
+    private void NewChat()
+    {
+        _State.ChatHistory.Clear();
+        _State.ChatQueryResults.Clear();
+        _State.PendingChatAttachments.Clear();
+        _State.CurrentChatSessionId = null;
+        _State.ChatSessionTitle = "New conversation";
+        _renaming = false;
+        _sessionCreatedAt = DateTimeOffset.Now;
+        _ollamaStatusMessage = null;
+        _generatedFileToAttach = string.Empty;
+    }
+
+    private async Task NewChatAsync()
+    {
+        NewChat();
+        await RefreshSessionsAsync();
+    }
+
+    private async Task DeleteChatAsync()
+    {
+        if (_State.CurrentChatSessionId is null)
+            return;
+
+        await ChatStore.DeleteAsync(_State.CurrentChatSessionId);
+        NewChat();
+        await RefreshSessionsAsync();
+        ShowStatus("Conversation deleted.", isError: false);
+    }
+
+    private Task ExportMarkdownAsync() => ExportAsync("md");
+    private Task ExportHtmlAsync() => ExportAsync("html");
+    private Task ExportJsonAsync() => ExportAsync("json");
+    private Task ExportZipAsync() => ExportAsync("zip");
+
+    private async Task ExportAsync(string format)
+    {
+        if (_State.ChatHistory.Count == 0)
+            return;
+
+        try
+        {
+            var session = BuildSession();
+            var baseName = ChatExporter.SanitizeFileName(session.Title, "conversation");
+
+            switch (format)
             {
-                if (text.Length > 0)
-                    result.Add(new ChatContentSegment(false, "", text, -1));
+                case "md":
+                    await DownloadTextAsync(baseName + ".md", ChatExporter.ToMarkdown(session));
+                    break;
+                case "html":
+                    await DownloadTextAsync(baseName + ".html", ChatExporter.ToHtml(session));
+                    break;
+                case "json":
+                    await DownloadTextAsync(baseName + ".json", ChatExporter.ToJson(session));
+                    break;
+                case "zip":
+                    var fileName = baseName + ".zip";
+                    var base64 = Convert.ToBase64String(ChatExporter.BuildZip(session));
+                    await _JSRuntime.InvokeVoidAsync("SQLAZORChat.downloadBase64", fileName, base64, "application/zip");
+                    break;
+            }
+
+            ShowStatus($"Exported conversation as .{format}.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Export failed: {ex.Message}", isError: true);
+        }
+    }
+
+    private Task DownloadTextAsync(string fileName, string text) =>
+        _JSRuntime.InvokeVoidAsync("SQLAZORChat.downloadText", fileName, text, ChatExporter.MimeFor(fileName)).AsTask();
+
+    private async Task ImportSessionAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file.Size > MaxImportBytes)
+            {
+                ShowStatus("That file is too large to import (limit 4 MB).", isError: true);
+                return;
+            }
+
+            using var stream = file.OpenReadStream(MaxImportBytes);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var session = ChatExporter.FromJson(json);
+            if (session is null)
+            {
+                ShowStatus("That file is not a SQLAZOR conversation export.", isError: true);
+                return;
+            }
+
+            session.Id = Guid.NewGuid().ToString("N");
+            session.CreatedAt = DateTimeOffset.Now;
+            await ChatStore.SaveAsync(session);
+
+            ApplySession(session);
+            await RefreshSessionsAsync();
+            ShowStatus($"Imported \"{session.Title}\" ({session.Messages.Count} message(s)).", isError: false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Import failed: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task OnAttachmentsSelectedAsync(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(MaxAttachments))
+        {
+            if (_State.PendingChatAttachments.Count >= MaxAttachments)
+            {
+                ShowStatus($"Only {MaxAttachments} attachments are allowed per message.", isError: true);
+                break;
+            }
+
+            if (file.Size > MaxAttachmentBytes)
+            {
+                ShowStatus($"\"{file.Name}\" is larger than {MaxAttachmentBytes / 1024} KB and was skipped.", isError: true);
                 continue;
             }
 
-            var language = "";
-            var newlineIndex = text.IndexOf('\n');
-            if (newlineIndex > 0 && newlineIndex < 20 && !text[..newlineIndex].Contains(' '))
+            using var stream = file.OpenReadStream(MaxAttachmentBytes);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            if (content.Contains('\0'))
             {
-                language = text[..newlineIndex].Trim();
-                text = text[(newlineIndex + 1)..];
+                ShowStatus($"\"{file.Name}\" looks like binary content and was skipped.", isError: true);
+                continue;
             }
-            Console.WriteLine($"lang: {language}");
-            result.Add(new ChatContentSegment(true, language, text.Trim('\n'), codeIndex));
-            codeIndex++;
+
+            _State.PendingChatAttachments.Add(new ChatAttachment
+            {
+                FileName = file.Name,
+                Content = content,
+                SizeBytes = file.Size
+            });
         }
 
-        return result;
+        _ollamaStatusMessage = null;
     }
 
-    private static string EncodeChatText(string text) =>
-        System.Net.WebUtility.HtmlEncode(text).Replace("\n", "<br/>");
-
-    private static bool LooksLikeSql(string language, string code)
+    private async Task OnImagesSelectedAsync(InputFileChangeEventArgs e)
     {
-        if (language.Equals("sql", StringComparison.OrdinalIgnoreCase) ||
-            language.Equals("tsql", StringComparison.OrdinalIgnoreCase))
+        foreach (var file in e.GetMultipleFiles(MaxAttachments))
         {
+            if (_State.PendingChatAttachments.Count >= MaxAttachments)
+            {
+                ShowStatus($"Only {MaxAttachments} attachments are allowed per message.", isError: true);
+                break;
+            }
+
+            if (!TryImageMime(file.Name, file.ContentType, out var mime))
+            {
+                ShowStatus($"\"{file.Name}\" is not a supported image (PNG, JPEG, or WebP only).", isError: true);
+                continue;
+            }
+
+            if (file.Size > MaxImageBytes)
+            {
+                ShowStatus($"\"{file.Name}\" is larger than {MaxImageBytes / (1024 * 1024)} MB and was skipped.", isError: true);
+                continue;
+            }
+
+            using var stream = file.OpenReadStream(MaxImageBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var bytes = buffer.ToArray();
+
+            _State.PendingChatAttachments.Add(new ChatAttachment
+            {
+                FileName = file.Name,
+                Content = Convert.ToBase64String(bytes),
+                SizeBytes = bytes.Length,
+                MimeType = mime
+            });
+        }
+
+        _ollamaStatusMessage = null;
+    }
+
+    private static bool TryImageMime(string fileName, string? contentType, out string mime)
+    {
+        if (contentType is not null &&
+            contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
+            contentType is "image/png" or "image/jpeg" or "image/webp")
+        {
+            mime = contentType;
             return true;
         }
 
-        if (language.Length > 0)
-            return false; // an explicit non-SQL language tag (csharp, json, ...) - don't guess against it
+        mime = Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => ""
+        };
 
-        var trimmed = code.TrimStart();
-        return trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
-               trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase);
+        return mime.Length > 0;
+    }
+
+    private static string ImageDataUrl(ChatAttachment attachment) =>
+        $"data:{attachment.MimeType ?? "image/png"};base64,{attachment.Content}";
+
+    private void AttachGeneratedFileAsync()
+    {
+        var file = _State.GeneratedFiles.FirstOrDefault(
+            f => string.Equals(f.RelativePath, _generatedFileToAttach, StringComparison.OrdinalIgnoreCase));
+        if (file is null)
+            return;
+
+        if (_State.PendingChatAttachments.Count >= MaxAttachments)
+        {
+            ShowStatus($"Only {MaxAttachments} attachments are allowed per message.", isError: true);
+            return;
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetByteCount(file.Content);
+        if (bytes > MaxAttachmentBytes)
+        {
+            ShowStatus($"\"{file.RelativePath}\" is larger than {MaxAttachmentBytes / 1024} KB and was not attached.", isError: true);
+            return;
+        }
+
+        _State.PendingChatAttachments.Add(new ChatAttachment
+        {
+            FileName = file.RelativePath.Replace('/', '_'),
+            Content = file.Content,
+            SizeBytes = bytes
+        });
+
+        _generatedFileToAttach = string.Empty;
+        _ollamaStatusMessage = null;
+    }
+
+    private static string TitleFrom(string question)
+    {
+        var singleLine = string.Join(' ', question.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return singleLine.Length <= 60 ? singleLine : singleLine[..60].TrimEnd() + "…";
+    }
+
+    private static string FormatSize(long bytes) =>
+        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:0.#} KB";
+
+    private static string BubbleClasses(ChatMessage msg, bool isRtl)
+    {
+        var classes = msg.Role == "user" ? "chat-bubble chat-user" : "chat-bubble chat-assistant";
+        if (msg.IsError)
+            classes += " chat-error";
+        if (isRtl)
+            classes += " chat-rtl";
+        return classes;
+    }
+
+    private static string? RtlDirection(bool isRtl) => isRtl ? "rtl" : null;
+
+    private async Task UseQuickPromptAsync(string prompt)
+    {
+        if (_chatBusy || _State.Schema is null)
+            return;
+
+        _chatInput = prompt;
+        await SendChatAsync();
     }
 
     private SqlQueryRunResult? GetQueryResult(string blockKey) =>
         _State.ChatQueryResults.TryGetValue(blockKey, out var result) ? result : null;
 
-    private async Task RunQueryAsync(int messageIndex, int blockIndex, string sql)
+    private async Task RunQueryAsync(string messageId, int blockIndex, string sql)
     {
-        var key = $"{messageIndex}:{blockIndex}";
-        if (_runningQueryKeys.Contains(key)) return;
+        var key = $"{messageId}:{blockIndex}";
+        if (!_runningQueryKeys.Add(key))
+            return;
 
-        _runningQueryKeys.Add(key);
         StateHasChanged();
 
-        var result = await SchemaReader.ExecuteReadOnlyQueryAsync(_State.Conn.ConnectionString, sql);
-        _State.ChatQueryResults[key] = result;
-
-        _runningQueryKeys.Remove(key);
+        try
+        {
+            var result = await SchemaReader.ExecuteReadOnlyQueryAsync(_State.Conn.ConnectionString, sql);
+            _State.ChatQueryResults[key] = result;
+        }
+        finally
+        {
+            _runningQueryKeys.Remove(key);
+        }
     }
 
+    private async Task AddToGeneratedAsync(ChatContentSegment segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment.Text))
+            return;
+
+        var ordinal = 1;
+        string path;
+        do
+        {
+            path = ChatExporter.SuggestedGeneratedPath(segment, ordinal);
+            ordinal++;
+        }
+        while (_State.GeneratedFiles.Any(f => string.Equals(f.RelativePath, path, StringComparison.OrdinalIgnoreCase)));
+
+        _State.GeneratedFiles.Add(new GeneratedFile
+        {
+            RelativePath = path,
+            Content = segment.Text.TrimEnd() + Environment.NewLine
+        });
+
+        try
+        {
+            _State.Validation = Validator.Validate(_State.GeneratedFiles);
+        }
+        catch (Exception)
+        {
+            // Validation is advisory; the file is still added.
+        }
+
+        _State.NotifyStateChanged();
+        ShowStatus($"Added {path} to the generated files.", isError: false);
+    }
+
+    private async Task SafeStateHasChangedAsync()
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit went away while a response was streaming.
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _State.OnChange -= HandleStateChanged;
+
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _cts?.Dispose();
+    }
 }

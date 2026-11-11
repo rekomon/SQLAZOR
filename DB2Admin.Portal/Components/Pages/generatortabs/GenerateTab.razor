@@ -1,5 +1,6 @@
 ﻿@using static SQLAZOR.Portal.Helper.Enums
 @using static SQLAZOR.Services.GenerationState
+@implements IDisposable
 @inject ISchemaCodeGeneratorService _SchemaCode
 @inject IStoredProcedureGeneratorService _ProcedureGenerator
 @inject ICrudGeneratorService _CrudGenerator
@@ -7,7 +8,9 @@
 @inject IGenerateDocumentationService _GenerateDocumentation
 @inject ISchemaReaderService SchemaReader
 @inject GenerationState _State
-@inject IOllamaService Ollama
+@inject IChatProviderService Chat
+@inject IGeneratedCodeValidator _Validator
+@inject IGenerationManifestStore _ManifestStore
 <div class="row">
     <div class="col-12">
         <div class="card p-3">
@@ -28,7 +31,7 @@
 
                 <div class="col-12 mb-3">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" @bind="_generateDocumentation" >
+                        <input class="form-check-input" type="checkbox" @bind="_State.Options.GenerateDocumentation" >
                         <label class="text-primary" style="font-size:0.85rem;">
                             generate HTML documentation (<code>docs/index.html</code>)
                         </label>
@@ -51,7 +54,7 @@
                 </div>
                     <div class="col-12 mb-3">
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" @bind="_generateCrudServices" @bind:after="OnGenerateCrudServicesChanged">
+                        <input class="form-check-input" type="checkbox" @bind="_State.Options.GenerateCrudServices" @bind:after="OnGenerateCrudServicesChanged">
                             <label class="text-primary" style="font-size:0.85rem;">
                                 Generate CRUD DTOs + services (Dapper + Mapster, wrapped in Response Result)
                             </label>
@@ -75,7 +78,7 @@
 
                     <div class="col-12 mb-3">
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" @bind="_generateApiEndpoints" 
+                        <input class="form-check-input" type="checkbox" @bind="_State.Options.GenerateApiEndpoints" 
                         @bind:after="OnGenerateApiEndpointsChanged">
                             <label class="text-primary" style="font-size:0.85rem;">
                                 Generate API endpoints (ASP.NET Core controllers)
@@ -96,8 +99,8 @@
 
                     <div class="col-12 mb-3">
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" @bind="_generateHttpClientServices"
-                        disabled="@(!_generateApiEndpoints)">
+                        <input class="form-check-input" type="checkbox" @bind="_State.Options.GenerateHttpClientServices"
+                        disabled="@(!_State.Options.GenerateApiEndpoints)">
                             <label class="text-primary" style="font-size:0.85rem;">
                                     Generate HttpClient service classes (calls the generated endpoints)
                             </label>
@@ -118,8 +121,8 @@
                         <div class="form-check">
                         <input class="form-check-input" type="checkbox" 
                                @bind:after="OnGenerateBlazorPagesChanged"
-                               disabled="@(!_generateCrudServices)"
-                        @bind-value="_generateBlazorPages">
+                               disabled="@(!_State.Options.GenerateCrudServices)"
+                        @bind-value="_State.Options.GenerateBlazorPages">
                             <label class="text-primary" style="font-size:0.85rem;">
                                         Generate Blazor Server UI pages (list + create/edit)
                             </label>
@@ -138,21 +141,21 @@
 
                 <div class="col-12 mb-3">
                                     <div class="field-row">
-                        <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">Page style</label>
+                        <label class="@(_State.Options.GenerateBlazorPages ? "text-primary" : "text-muted")">Page style</label>
                                         <div class="actions" style="gap: 18px;">
-                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
-                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.Plain)"
-                                                       @onchange="() => _pageStyle = PageStyle.Plain" disabled="@(!_generateBlazorPages)" />
+                            <label class="@(_State.Options.GenerateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_State.Options.PageStyle == PageStyle.Plain)"
+                                                       @onchange="() => _State.Options.PageStyle = PageStyle.Plain" disabled="@(!_State.Options.GenerateBlazorPages)" />
                                                 Plain HTML
                                             </label>
-                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
-                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.MudBlazor)"
-                                                       @onchange="() => _pageStyle = PageStyle.MudBlazor" disabled="@(!_generateBlazorPages)" />
+                            <label class="@(_State.Options.GenerateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_State.Options.PageStyle == PageStyle.MudBlazor)"
+                                                       @onchange="() => _State.Options.PageStyle = PageStyle.MudBlazor" disabled="@(!_State.Options.GenerateBlazorPages)" />
                                                 MudBlazor
                                             </label>
-                            <label class="@(_generateBlazorPages ? "text-primary" : "text-muted")">
-                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_pageStyle == PageStyle.Tabler)"
-                                                       @onchange="() => _pageStyle = PageStyle.Tabler" disabled="@(!_generateBlazorPages)" />
+                            <label class="@(_State.Options.GenerateBlazorPages ? "text-primary" : "text-muted")">
+                                                <input type="radio" class="form-check-input" name="pageStyle" checked="@(_State.Options.PageStyle == PageStyle.Tabler)"
+                                                       @onchange="() => _State.Options.PageStyle = PageStyle.Tabler" disabled="@(!_State.Options.GenerateBlazorPages)" />
                                                 Tabler
                                             </label>
                                         <Popover Title="Page Style (depend on generate Blazor )" Class="w-80"
@@ -173,7 +176,7 @@
                 <div class="col-12 mb-3">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox"
-                               @bind="_generateProjectScaffold">
+                               @bind="_State.Options.GenerateProjectScaffold">
                         <label class="text-primary" style="font-size:0.85rem;">
                             Generate a full runnable project (Program.cs, .csproj, admin dashboard shell)
                         </label>
@@ -194,7 +197,7 @@
 
 
 
-                @if (_generateProjectScaffold)
+                @if (_State.Options.GenerateProjectScaffold)
                 
                 {
                     <div class="col-12 mb-3">
@@ -206,7 +209,7 @@
                     <div class="col-12 mb-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox"
-                                   @bind="_useCleanArchitecture">
+                                   @bind="_State.Options.UseCleanArchitecture">
                             <label class="text-primary" style="font-size:0.85rem;">
                                 Use Clean Architecture (4-project solution: Domain / Application / Infrastructure / Web)
                             </label>
@@ -230,11 +233,11 @@
 
                 }
 
-                @if (_generateProjectScaffold && _generateCrudServices)
+                @if (_State.Options.GenerateProjectScaffold && _State.Options.GenerateCrudServices)
                 {
                     <div class="col-12 mb-3">
                         <div class="field-row">
-                            <label class="text-primary">AI dashboard insights <span class="text-muted small">(Ollama, optional)</span></label>
+                            <label class="text-primary">AI dashboard insights <span class="text-muted small">(uses the configured AI provider, optional)</span></label>
                             <Popover Title="AI dashboard insights" Class="w-80"
                                      Content=" Asks LLM Model to suggest a few chart-worthy queries from the selected tables (counts by
                                 category, trends over time). Each suggestion is test-run against your database and shown
@@ -293,32 +296,46 @@
                     </div>
                 }
 
+                <GenerationProfilePanel />
+
                 </div>
 
                 <div class="row">
                     <div class="col-12 text-center">
                     <button class="btn btn-lg btn-primary" @onclick="GenerateAsync"
-                            disabled="@(_busy || (_State.SelectedTableKeys.Count == 0 && _State.SelectedProcedureKeys.Count == 0))">
+                            disabled="@(_busy || _State.PendingMerge is not null || (_State.SelectedTableKeys.Count == 0 && _State.SelectedProcedureKeys.Count == 0))">
                         Generate (@_State.SelectedTableKeys.Count table@(_State.SelectedTableKeys.Count == 1 ? "" : "s"),
                         @_State.SelectedProcedureKeys.Count proc@(_State.SelectedProcedureKeys.Count == 1 ? "" : "s"))
                     </button>
                     </div>
                 </div>
+
+            @if (!string.IsNullOrEmpty(_statusMessage))
+            {
+                <div class="status-badge mt-3 @(_statusIsError ? "status-failed" : "status-completed")">@_statusMessage</div>
+            }
+
+            <GenerationMergePanel Plan="_State.PendingMerge"
+                                  OnApply="ApplyPendingMergeAsync"
+                                  OnCancel="CancelPendingMerge" />
         </div>
     </div>
 </div>
 
 
 @code {
+    protected override void OnInitialized()
+    {
+        // This component has no parameters, so Blazor skips re-rendering it when only the parent
+        // re-renders. Subscribe directly so the "Generate (n tables)" label tracks schema selection.
+        _State.OnChange += OnGenerationStateChanged;
+    }
+
+    private void OnGenerationStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => _State.OnChange -= OnGenerationStateChanged;
+
     private bool _busy;
-    private bool _generateCrudServices;
-    private bool _generateApiEndpoints;
-    private bool _generateHttpClientServices;
-    private bool _generateBlazorPages;
-    private PageStyle _pageStyle = PageStyle.Plain;
-    private bool _generateProjectScaffold;
-    private bool _generateDocumentation;
-    private bool _useCleanArchitecture;
     bool manualVisible=false;
     private bool _insightsBusy;
     private string? _insightsStatusMessage;
@@ -326,28 +343,28 @@
     private GeneratedFile? _selectedFile;
     private void OnGenerateCrudServicesChanged()
     {
-        if (!_generateCrudServices)
+        if (!_State.Options.GenerateCrudServices)
         {
-            _generateApiEndpoints = false;
-            _generateHttpClientServices = false;
-            _generateBlazorPages = false;
-            _pageStyle = PageStyle.Plain;
+            _State.Options.GenerateApiEndpoints = false;
+            _State.Options.GenerateHttpClientServices = false;
+            _State.Options.GenerateBlazorPages = false;
+            _State.Options.PageStyle = PageStyle.Plain;
         }
     }
 
     private void OnGenerateApiEndpointsChanged()
     {
-        if (!_generateApiEndpoints)
+        if (!_State.Options.GenerateApiEndpoints)
         {
-            _generateHttpClientServices = false;
+            _State.Options.GenerateHttpClientServices = false;
         }
     }
 
     private void OnGenerateBlazorPagesChanged()
     {
-        if (!_generateBlazorPages)
+        if (!_State.Options.GenerateBlazorPages)
         {
-            _pageStyle = PageStyle.Plain;
+            _State.Options.PageStyle = PageStyle.Plain;
         }
     }
 
@@ -375,7 +392,7 @@
             };
 
             var prompt = DashboardInsightsAssistant.BuildPrompt(scopedSchema, _State.Procedures, maxInsights: 4);
-            var json = await Ollama.GenerateJsonAsync(_State.OllamaEndpoint.Trim(), _State.OllamaModel.Trim(), prompt);
+            var json = await Chat.GenerateJsonAsync(_State.CurrentAiConfig, prompt);
             var candidates = DashboardInsightsAssistant.TryParse(json);
 
             if (candidates.Count == 0)
@@ -457,7 +474,7 @@
         var ctxName = string.IsNullOrWhiteSpace(_State.DbContextName) ? "AppDbContext" : _State.DbContextName.Trim();
         var appName = string.IsNullOrWhiteSpace(_State.ApplicationName) ? "GeneratedApp" : _State.ApplicationName.Trim();
 
-        var useCleanArchitecture = _generateProjectScaffold && _useCleanArchitecture;
+        var useCleanArchitecture = _State.Options.GenerateProjectScaffold && _State.Options.UseCleanArchitecture;
         var layers = useCleanArchitecture ? ProjectLayers.Create(true, appName, ns) : null;
 
 
@@ -471,11 +488,21 @@
         {
             files.AddRange(_SchemaCode.Generate(effectiveSchema, _State.SelectedTableKeys, ns, ctxName, layers));
 
-            if (_generateCrudServices)
+            if (_State.Options.GenerateCrudServices)
             {
+                LookupPlan? lookupPlan = null;
+                if (_State.Options.GenerateBlazorPages)
+                {
+                    var acceptedLookups = _State.LookupSuggestions
+                        .Where(s => _State.AcceptedLookupKeys.Contains(s.Key))
+                        .ToList();
+                    lookupPlan = LookupPlanner.Build(effectiveSchema, _State.SelectedTableKeys, acceptedLookups);
+                    warnings.AddRange(lookupPlan.Warnings);
+                }
+
                 files.AddRange(_CrudGenerator.GenerateCrudServices(
                     effectiveSchema, _State.SelectedTableKeys, ns,
-                    _generateApiEndpoints, _generateHttpClientServices, _generateBlazorPages, _pageStyle, layers));
+                    _State.Options.GenerateApiEndpoints, _State.Options.GenerateHttpClientServices, _State.Options.GenerateBlazorPages, _State.Options.PageStyle, layers, lookupPlan));
 
                 var skippedNoKey = _State.Schema.Tables
                     .Where(t => _State.SelectedTableKeys.Contains(t.FullyQualifiedName) && !t.IsView && t.PrimaryKeyColumns.Count == 0)
@@ -487,14 +514,14 @@
                 }
             }
 
-            if (_generateProjectScaffold)
+            if (_State.Options.GenerateProjectScaffold)
             {
                 var acceptedInsights = _State.DashboardInsights
                     .Where(i => _State.AcceptedInsightTitles.Contains(i.Title))
                     .ToList();
                 files.AddRange(_ProjectGenerator.GenerateProjectScaffold(
                     effectiveSchema, _State.SelectedTableKeys, ns, appName, ctxName, _State.Conn.ConnectionString,
-                    _generateApiEndpoints, _generateCrudServices, _generateBlazorPages, _pageStyle, acceptedInsights,
+                    _State.Options.GenerateApiEndpoints, _State.Options.GenerateCrudServices, _State.Options.GenerateBlazorPages, _State.Options.PageStyle, acceptedInsights,
                     useCleanArchitecture));
             }
         }
@@ -531,30 +558,125 @@
         }
 
 
-        if (_generateDocumentation)
+        if (_State.Options.GenerateDocumentation)
         {
             files.AddRange(_GenerateDocumentation.GenerateDocumentation(
                 effectiveSchema, _State.SelectedTableKeys, proceduresIncluded, files,
-                appName, ns, ctxName, _generateCrudServices, _generateApiEndpoints,
-                _generateHttpClientServices, _generateBlazorPages, _pageStyle, useCleanArchitecture));
+                appName, ns, ctxName, _State.Options.GenerateCrudServices, _State.Options.GenerateApiEndpoints,
+                _State.Options.GenerateHttpClientServices, _State.Options.GenerateBlazorPages, _State.Options.PageStyle, useCleanArchitecture));
         }
-        _State.GeneratedFiles = files;
-        _selectedFile = _State.GeneratedFiles.FirstOrDefault();
-        _State.NotifyStateChanged();
+        var mergeManifest = await _ManifestStore.LoadAsync(_State.Conn.DatabaseKey);
+        var mergePlan = GenerationMerger.Build(files, _State.GeneratedFiles, mergeManifest);
+        _pendingGeneratedFiles = files;
+
+        if (mergePlan.HasConflicts)
+        {
+            _State.PendingMerge = mergePlan;
+            _statusMessage = $"Generated {files.Count} file(s). {mergePlan.ConflictCount} conflict(s) and " +
+                             $"{mergePlan.RemovedCount} removed file(s) need a decision before anything is replaced.";
+            _statusIsError = false;
+        }
+        else
+        {
+            _State.PendingMerge = null;
+            _State.GeneratedFiles = mergePlan.Apply();
+            ValidateCurrentFiles(warnings);
+            await SaveManifestAsync(files, warnings);
+
+            _selectedFile = _State.GeneratedFiles.FirstOrDefault();
+            _statusMessage = BuildSummary(files.Count, mergePlan, warnings);
+            _statusIsError = _State.Validation is { ErrorCount: > 0 };
+
+            _State.NotifyStateChanged();
+        }
+
         await InvokeAsync(StateHasChanged);
         _busy = false;
 
-        var summaryMessage = $"Generated {files.Count} file(s).";
-        if (warnings.Count > 0)
-            summaryMessage += " " + string.Join(" ", warnings);
-
         try
         {
-            if (files.Any())
+            if (files.Any() && !mergePlan.HasConflicts)
                 await _JSRuntime.ShowGenerateResultTab();
         }
         catch { }   
         // SetStatus(summaryMessage, false);
+    }
+
+    private List<GeneratedFile> _pendingGeneratedFiles = [];
+    private string? _statusMessage;
+    private bool _statusIsError;
+
+    private void ValidateCurrentFiles(List<string> warnings)
+    {
+        try
+        {
+            _State.Validation = _State.GeneratedFiles.Count > 0 ? _Validator.Validate(_State.GeneratedFiles) : null;
+        }
+        catch (Exception ex)
+        {
+            _State.Validation = null;
+            warnings.Add($"Generated-code validation could not run: {ex.Message}");
+        }
+    }
+
+    private async Task SaveManifestAsync(List<GeneratedFile> generatedFiles, List<string>? warnings = null)
+    {
+        try
+        {
+            var manifest = GenerationMerger.BuildManifest(_State.Conn.DatabaseKey, _State.Conn.Database, generatedFiles);
+            await _ManifestStore.SaveAsync(manifest);
+        }
+        catch (Exception ex)
+        {
+            warnings?.Add($"Generation manifest could not be saved: {ex.Message}");
+        }
+    }
+
+    private string BuildSummary(int generatedCount, GenerationMergePlan plan, List<string> warnings)
+    {
+        var summary = $"Generated {generatedCount} file(s)";
+        if (plan.AddedCount > 0) summary += $", {plan.AddedCount} new";
+        if (plan.UpdatedCount > 0) summary += $", {plan.UpdatedCount} updated";
+        if (plan.LocalEditCount > 0) summary += $", {plan.LocalEditCount} local edit(s) kept";
+        summary += ".";
+
+        if (_State.Validation is { } validation)
+            summary += $" Validation: {validation.ErrorCount} error(s) across {validation.FilesChecked} checked file(s).";
+        if (warnings.Count > 0)
+            summary += " " + string.Join(" ", warnings);
+
+        return summary;
+    }
+
+    private async Task ApplyPendingMergeAsync()
+    {
+        if (_State.PendingMerge is null)
+            return;
+
+        var plan = _State.PendingMerge;
+        _State.GeneratedFiles = plan.Apply();
+        _State.PendingMerge = null;
+
+        var warnings = new List<string>();
+        ValidateCurrentFiles(warnings);
+        await SaveManifestAsync(_pendingGeneratedFiles, warnings);
+
+        _selectedFile = _State.GeneratedFiles.FirstOrDefault();
+        _statusMessage = $"Applied: {plan.AddedCount} new file(s), {plan.ConflictCount} conflict(s) resolved, " +
+                         $"{plan.RemovedCount} removed file(s) handled." +
+                         (warnings.Count > 0 ? " " + string.Join(" ", warnings) : "");
+        _statusIsError = _State.Validation is { ErrorCount: > 0 };
+
+        _State.NotifyStateChanged();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CancelPendingMerge()
+    {
+        _State.PendingMerge = null;
+        _statusMessage = "Regeneration cancelled; existing files were left untouched.";
+        _statusIsError = false;
+        StateHasChanged();
     }
 
     private DatabaseSchema BuildEffectiveSchema()

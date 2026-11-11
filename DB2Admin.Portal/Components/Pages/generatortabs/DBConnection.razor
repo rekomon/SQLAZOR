@@ -43,7 +43,7 @@
         }
         else
         {
-            <MudInput T="string" @bind-Value="Conn.Database" class="w-100"
+            <MudInput  @bind-Value="Conn.Database" class="w-100"
                       Variant="MudBlazor.Variant.Outlined" 
                       Margin="Margin.Dense" Placeholder="Database"></MudInput>
         }
@@ -118,7 +118,7 @@
             _State.NotifyStateChanged();
             await InvokeAsync(StateHasChanged);
         }
-        else { Error = error; }
+        else { Error = error!; }
 
         _busy = false;
     }

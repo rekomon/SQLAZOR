@@ -1,0 +1,157 @@
+@using System.Text.Json
+@using SQLAZOR.Models
+@inject IJSRuntime _JSRuntime
+@implements IAsyncDisposable
+
+<div class="chat-chart">
+    <div class="chat-chart-head">
+        <span class="chat-chart-title">@(string.IsNullOrWhiteSpace(Spec.Title) ? "Chart" : Spec.Title)</span>
+        <div class="chat-chart-types">
+            @foreach (var type in AvailableTypes)
+            {
+                <button type="button" class="@TypeButtonClass(type)"
+                        @onclick="() => SetTypeAsync(type)">@TypeLabel(type)</button>
+            }
+        </div>
+    </div>
+
+    <div class="chat-chart-canvas" style="height:@(Height)px">
+        <canvas id="@_canvasId"></canvas>
+    </div>
+
+    @if (_renderFailed)
+    {
+        <p class="text-muted small mb-1">Chart renderer unavailable (offline?). The data is below.</p>
+    }
+
+    <details class="chat-chart-data">
+        <summary>View data</summary>
+        <div class="query-result-wrap">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th></th>
+                        @foreach (var series in Spec.Series)
+                        {
+                            <th>@(string.IsNullOrWhiteSpace(series.Name) ? "Value" : series.Name)</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var row = 0; row < Spec.Labels.Count; row++)
+                    {
+                        <tr>
+                            <td>@Spec.Labels[row]</td>
+                            @foreach (var series in Spec.Series)
+                            {
+                                <td class="text-primary">@Format(series, row)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </details>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChatChartSpec Spec { get; set; } = new();
+    [Parameter] public int Height { get; set; } = 260;
+
+    private readonly string _canvasId = "chat-chart-" + Guid.NewGuid().ToString("N");
+    private string _type = "bar";
+    private bool _typeInitialized;
+    private string? _lastPayload;
+    private bool _renderFailed;
+
+    private List<string> AvailableTypes =>
+        Spec.Series.Count > 1 ? ["bar", "line"] : ["bar", "line", "pie"];
+
+    private bool IsRtl =>
+        ChatTextDirection.IsRtl(Spec.Title + " " + string.Join(' ', Spec.Labels)) ||
+        Spec.Series.Any(s => ChatTextDirection.IsRtl(s.Name));
+
+    protected override void OnParametersSet()
+    {
+        if (!_typeInitialized)
+        {
+            _type = AvailableTypes.Contains(Spec.Type) ? Spec.Type : "bar";
+            _typeInitialized = true;
+            return;
+        }
+
+        // Keep the reader's choice across re-renders; only fall back when it stops being valid.
+        if (!AvailableTypes.Contains(_type))
+            _type = "bar";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var payload = _type + "|" + IsRtl + "|" + JsonSerializer.Serialize(Spec);
+        if (payload == _lastPayload)
+            return;
+
+        _lastPayload = payload;
+
+        try
+        {
+            var rendered = await _JSRuntime.InvokeAsync<bool>("SQLAZORCharts.render", _canvasId, new
+            {
+                type = _type,
+                rtl = IsRtl,
+                labels = Spec.Labels,
+                series = Spec.Series.Select(s => new { name = s.Name, values = s.Values })
+            });
+
+            if (rendered == _renderFailed)
+            {
+                _renderFailed = !rendered;
+                StateHasChanged();
+            }
+        }
+        catch (JSException)
+        {
+            if (!_renderFailed)
+            {
+                _renderFailed = true;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SetTypeAsync(string type)
+    {
+        if (_type == type)
+            return;
+
+        _type = type;
+        _lastPayload = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string TypeLabel(string type) => type switch
+    {
+        "line" => "Line",
+        "pie" => "Pie",
+        _ => "Bar"
+    };
+
+    private string TypeButtonClass(string type) => _type == type ? "btn small active" : "btn small";
+
+    private static string Format(ChatChartSeries series, int row) =>
+        row < series.Values.Count
+            ? series.Values[row].ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _JSRuntime.InvokeVoidAsync("SQLAZORCharts.destroy", _canvasId);
+        }
+        catch (JSException)
+        {
+            // The circuit is already gone; nothing left to destroy.
+        }
+    }
+}

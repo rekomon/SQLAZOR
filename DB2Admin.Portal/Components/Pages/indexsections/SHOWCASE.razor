@@ -1,67 +1,111 @@
-﻿ <!-- ─── SHOWCASE ─── -->
-    <section class="showcase-section" id="showcase">
-        <div class="container">
-            <div class="section-header">
-                <div class="badge-cyber"><i class="bi bi-display me-1"></i> Showcase</div>
-                <h2>See It in Action</h2>
-                <p>Generated code from a real SQL Server database — clean, typed, and ready to run.</p>
+﻿<!-- ─── SHOWCASE ─── -->
+<section class="showcase-section" id="showcase">
+    <div class="container">
+        <div class="section-header">
+            <div class="badge-cyber"><i class="bi bi-camera me-1"></i> Showcase</div>
+            <h2>Inside the AI copilot</h2>
+            <p>Real captures from a live FixFlow SQL Server schema — no mockups, no invented numbers.</p>
+        </div>
+        <div class="ai-gallery">
+            <div class="gallery-col">
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Interactive charts + SQL</span>
+                        <span class="shot-badge">Live capture</span>
+                    </div>
+                    <div class="shot-body cap">
+                        <a href="assets/img/landing/ai-chart.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-chart.png"
+                                 alt="AI assistant charting columns per table with an interactive bar chart and a read-only SQL query"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">A bar chart drawn from the rows a read‑only query returned — with Table/Chart toggles and a Run query button in the reply.</p>
+                </article>
+
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Arabic responses</span>
+                        <span class="shot-badge">RTL</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-arabic.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-arabic.png"
+                                 alt="An Arabic answer laid out right-to-left with a readable schema table"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">Ask in Arabic and the bubble flips to right‑to‑left — mirrored alignment, readable tables, code still LTR.</p>
+                </article>
+
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Three providers, one chat</span>
+                        <span class="shot-badge">Local + cloud</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-providers.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-providers.png"
+                                 alt="Provider settings showing DeepSeek endpoint, model, and API key stored locally"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">Switch between local Ollama, OpenRouter's free models, and DeepSeek's cloud API. The key stays in %LOCALAPPDATA% — only schema text leaves the machine.</p>
+                </article>
             </div>
-            <div class="row g-4">
-                <div class="col-md-6">
-                    <div class="showcase-card">
-                        <div class="showcase-header">
-                            <div class="dots">
-                                <span></span><span></span><span></span>
-                            </div>
-                            <span class="title">Models/Product.cs</span>
-                            <span class="text-muted small">Generated</span>
-                        </div>
-                        <div class="showcase-body">
-                            <div class="code-snippet">
-                                <span class="kw">using</span> System.ComponentModel.DataAnnotations;<br />
-                                <br />
-                                <span class="kw">namespace</span> SqLazor.Models<br />
-                                {<br />
-                                &nbsp;&nbsp;<span class="kw">public class</span> <span style="color:#4fc3f7;">Product</span><br />
-                                &nbsp;&nbsp;{<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public int</span> ProductId { <span class="kw">get; set;</span> }<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public string</span> Name { <span class="kw">get; set;</span> }<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public decimal</span> Price { <span class="kw">get; set;</span> }<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public int</span> CategoryId { <span class="kw">get; set;</span> }<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">public virtual</span> Category Category { <span class="kw">get; set;</span> }<br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">// + validation, navigation, etc.</span><br />
-                                &nbsp;&nbsp;}<br />
-                                }
-                            </div>
-                        </div>
+
+            <div class="gallery-col">
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Generated project preview</span>
+                        <span class="shot-badge">Live capture</span>
                     </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="showcase-card">
-                        <div class="showcase-header">
-                            <div class="dots">
-                                <span></span><span></span><span></span>
-                            </div>
-                            <span class="title">Pages/Products.razor</span>
-                            <span class="text-muted small">Generated</span>
-                        </div>
-                        <div class="showcase-body">
-                            <div class="code-snippet">
-                                <span class="kw">@@page</span> <span class="str">"/products"</span><br />
-                                <span class="kw">@@using</span> SqLazor.Models<br />
-                                <span class="kw">@@inject</span> IProductService ProductService<br />
-                                <br />
-                                &lt;<span style="color:#4fc3f7;">MudTable</span> <span style="color:#ffbd2e;">Items</span>=<span class="str">"_products"</span><br />
-                                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#ffbd2e;">ServerData</span>=<span class="str">"@@LoadData"</span>&gt;<br />
-                                &nbsp;&nbsp;&lt;<span style="color:#4fc3f7;">PropertyColumn</span> <span style="color:#ffbd2e;">Property</span>=<span class="str">"p => p.Name"</span> <span style="color:#ffbd2e;">Title</span>=<span class="str">"Product"</span> /&gt;<br />
-                                &nbsp;&nbsp;&lt;<span style="color:#4fc3f7;">PropertyColumn</span> <span style="color:#ffbd2e;">Property</span>=<span class="str">"p => p.Price"</span> <span style="color:#ffbd2e;">Title</span>=<span class="str">"Price"</span> /&gt;<br />
-                                &lt;<span style="color:#4fc3f7;">/MudTable</span>&gt;<br />
-                                <br />
-                                <span class="cm">// + CRUD dialogs, search, pagination</span>
-                            </div>
-                        </div>
+                    <div class="shot-body cap">
+                        <a href="assets/img/landing/ai-preview.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-preview.png"
+                                 alt="Result preview with the generated file tree and inline code"
+                                 loading="lazy" />
+                        </a>
                     </div>
-                </div>
+                    <p class="shot-caption">Every generated file is browsable with inline code before you download the ZIP.</p>
+                </article>
+
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Markdown relationships</span>
+                        <span class="shot-badge">Live capture</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-relationships.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-relationships.png"
+                                 alt="Foreign-key relationships rendered as a native Markdown table inside the chat"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">Relationship maps arrive as Markdown tables that render natively — sortable reading, not a wall of text.</p>
+                </article>
+
+                <article class="shot-card">
+                    <div class="shot-header">
+                        <div class="dots"><span></span><span></span><span></span></div>
+                        <span class="shot-title">Two‑layer validation</span>
+                        <span class="shot-badge">Roslyn + build</span>
+                    </div>
+                    <div class="shot-body">
+                        <a href="assets/img/landing/ai-validation.png" target="_blank" rel="noopener" title="Open the full-size capture">
+                            <img src="assets/img/landing/ai-validation.png"
+                                 alt="Generated code check reporting no syntax errors, followed by the deep compile option"
+                                 loading="lazy" />
+                        </a>
+                    </div>
+                    <p class="shot-caption">183 files parsed with no syntax errors — then an optional deep dotnet build catches missing types and wiring.</p>
+                </article>
             </div>
         </div>
-    </section>
+    </div>
+</section>

@@ -2,51 +2,114 @@
 <section class="features-section" id="features">
     <div class="container">
         <div class="section-header">
-            <div class="badge-cyber"><i class="bi bi-stars me-1"></i> Features</div>
-            <h2>Designed for Blazor Developers</h2>
-            <p>Everything you need to turn your database into a fully functional admin interface — fast.</p>
+            <div class="badge-cyber"><i class="bi bi-stars me-1"></i> What's new</div>
+            <h2>Your database, with an AI copilot</h2>
+            <p>Ask, chart, run, edit, and validate without leaving the generator — every reply is grounded in the schema you actually connected to.</p>
         </div>
         <div class="row g-4">
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
-                    <div class="icon"><i class="bi bi-database"></i></div>
-                    <h5>Reverse‑Engineer SQL</h5>
-                    <p>Connect to any SQL Server database and automatically discover tables, views, relationships, and constraints.</p>
+                    <div class="icon"><i class="bi bi-chat-square-text"></i></div>
+                    <h5>Ask in plain English</h5>
+                    <p>Get schema tours, relationship maps, and finished T‑SQL or LINQ queries. Replies use real Markdown headings, tables, and callouts — not raw text.</p>
                 </div>
             </div>
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
-                    <div class="icon"><i class="bi bi-file-code"></i></div>
-                    <h5>Clean Blazor Code</h5>
-                    <p>Generate clean, maintainable C# code for models, services, and Blazor components following best practices.</p>
+                    <div class="icon"><i class="bi bi-bar-chart-line"></i></div>
+                    <h5>Charts from real results</h5>
+                    <p>Any result with two or more columns becomes a bar, line, or pie chart in one click — drawn from the rows your query returned, never invented numbers.</p>
                 </div>
             </div>
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
-                    <div class="icon"><i class="bi bi-layout-three-columns"></i></div>
-                    <h5>MudBlazor UI Ready</h5>
-                    <p>All generated pages use MudBlazor components – beautiful, responsive, and consistent out of the box.</p>
+                    <div class="icon"><i class="bi bi-terminal"></i></div>
+                    <h5>Read‑only SQL runner</h5>
+                    <p>Run SELECT and WITH statements straight from a reply. Hard limits keep it safe: 200 rows, a 15‑second timeout, and no statements that modify data.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-clock-history"></i></div>
+                    <h5>Conversations that persist</h5>
+                    <p>Search, pin, rename, and reload saved sessions as local JSON. Export any conversation to Markdown, HTML, JSON, or a ZIP bundle.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-cpu"></i></div>
+                    <h5>Ollama, OpenRouter or DeepSeek</h5>
+                    <p>Run against your own Ollama models, OpenRouter's curated free models, or DeepSeek's cloud API. Keys stay in %LOCALAPPDATA%; cloud calls receive schema names, never row data.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-translate"></i></div>
+                    <h5>Arabic‑first layout</h5>
+                    <p>Ask in Arabic and the bubble flips to right‑to‑left — mirrored alignment and readable tables, while SQL and code stay left‑to‑right.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-pencil-square"></i></div>
+                    <h5>AI edits with diff preview</h5>
+                    <p>Attach up to five generated files, describe a targeted change, and review an exact line‑by‑line diff before applying it. Validation re‑runs automatically.</p>
                 </div>
             </div>
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
                     <div class="icon"><i class="bi bi-shield-check"></i></div>
-                    <h5>Entity Framework Core</h5>
-                    <p>Full EF Core support with DbContext, migrations, and relationships – no extra ORM layer needed.</p>
+                    <h5>Two‑layer validation</h5>
+                    <p>Roslyn catches parse errors in C#, Razor code blocks, JSON, and XML instantly. Deep compile runs dotnet build in a temp copy to catch missing types and wiring.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-bookmark-star"></i></div>
+                    <h5>Saved generation profiles</h5>
+                    <p>Capture table selections and options per database, then re‑apply them later — or export the profile and import it on another machine.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-window-stack"></i></div>
+                    <h5>Preview before you build</h5>
+                    <p>Render the generated docs page in a sandboxed iframe and browse every output file with inline code and a ZIP download.</p>
                 </div>
             </div>
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
                     <div class="icon"><i class="bi bi-arrow-repeat"></i></div>
-                    <h5>Live Regeneration</h5>
-                    <p>When your schema changes, regenerate only the affected parts with a single command. No manual sync.</p>
+                    <h5>Regeneration‑safe output</h5>
+                    <p>Manifests and diffs keep your manual edits intact when the schema changes and you generate again. Only what changed is rewritten.</p>
                 </div>
             </div>
             <div class="col-md-6 col-lg-4">
                 <div class="feature-card">
-                    <div class="icon"><i class="bi bi-person-gear"></i></div>
-                    <h5>Customizable Templates</h5>
-                    <p>Extend or override the default code templates to match your exact project structure and style.</p>
+                    <div class="icon"><i class="bi bi-lightbulb"></i></div>
+                    <h5>AI dashboard insights</h5>
+                    <p>Ask the model to propose KPIs and cards for the generated dashboard, accept the ones you like, and they flow straight into the app.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-search"></i></div>
+                    <h5>Smart lookups</h5>
+                    <p>Foreign keys become searchable pickers automatically. AI or a local distinct scan can turn text and categorical columns into lists — and scanned values never leave your machine.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-ui-checks-grid"></i></div>
+                    <h5>Search inside every dropdown</h5>
+                    <p>Generated forms ship <code>MudAutocomplete</code> for foreign keys, backed by a cached search method — type a letter instead of scrolling a thousand rows.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="icon"><i class="bi bi-tag"></i></div>
+                    <h5>Readable labels, not raw keys</h5>
+                    <p>Lookup pickers display a human name while binding the real key, so generated pages read like the data your users already know.</p>
                 </div>
             </div>
         </div>

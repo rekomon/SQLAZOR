@@ -15,7 +15,7 @@ namespace SQLAZOR.Services
             bool generateApiEndpoints,
             bool generateHttpClientServices,
             bool generateBlazorPages,
-            PageStyle pageStyle, ProjectLayers? layers = null)
+            PageStyle pageStyle, ProjectLayers? layers = null, LookupPlan? lookupPlan = null)
         {
             var selected = selectedTableKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var tables = schema.Tables.Where(t => selected.Contains(t.FullyQualifiedName) && !t.IsView).ToList();
@@ -24,6 +24,8 @@ namespace SQLAZOR.Services
             var files = new List<GeneratedFile>();
             if (validTables.Count == 0)
                 return files;
+
+            lookupPlan ??= LookupPlanner.Build(schema, selectedTableKeys);
 
             // HttpClient services only make sense if there are endpoints for them to call.
             var actuallyGenerateHttpServices = generateApiEndpoints && generateHttpClientServices;
@@ -60,9 +62,10 @@ namespace SQLAZOR.Services
 
                 if (generateBlazorPages)
                 {
+                    var tableLookups = lookupPlan.ForTable(table);
                     files.Add(Constant.WithPathPrefix(GenerateListPage(table, webNs, pageStyle), webPath));
-                    files.Add(Constant.WithPathPrefix(GenerateCreatePage(table, webNs, pageStyle), webPath));
-                    files.Add(Constant.WithPathPrefix(GenerateEditPage(table, webNs, pageStyle), webPath));
+                    files.Add(Constant.WithPathPrefix(GenerateCreatePage(table, webNs, pageStyle, tableLookups), webPath));
+                    files.Add(Constant.WithPathPrefix(GenerateEditPage(table, webNs, pageStyle, tableLookups), webPath));
                 }
             }
 
@@ -97,6 +100,44 @@ namespace SQLAZOR.Services
 
         private static List<ColumnInfo> GetUpdatableColumns(TableInfo table) =>
             table.Columns.Where(c => !c.IsPrimaryKey && !c.IsComputed).OrderBy(c => c.OrdinalPosition).ToList();
+
+        /// <summary>
+        /// Text columns a search box should match. (max)-length columns are skipped because LIKE over
+        /// them is slow and large free text is rarely what users type into a lookup.
+        /// </summary>
+        private static List<ColumnInfo> SearchColumns(TableInfo table) =>
+            table.Columns
+                .Where(c => LookupPlanner.BaseClrType(c.ClrType) == "string" && c.MaxLength != -1)
+                .OrderBy(c => c.OrdinalPosition)
+                .ToList();
+
+        private static IEnumerable<ColumnInfo> SearchOrderColumns(TableInfo table, List<ColumnInfo> searchColumns)
+        {
+            string[] preferred = ["Name", "FullName", "DisplayName", "Title", "Label", "Subject", "Code", "Sku"];
+            foreach (var name in preferred)
+            {
+                var column = searchColumns.FirstOrDefault(c => c.ColumnName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (column is not null)
+                {
+                    yield return column;
+                    yield break;
+                }
+            }
+
+            if (searchColumns.Count > 0)
+            {
+                yield return searchColumns[0];
+                yield break;
+            }
+
+            foreach (var pkName in table.PrimaryKeyColumns)
+            {
+                var pkColumn = table.Columns.FirstOrDefault(c =>
+                    c.ColumnName.Equals(pkName, StringComparison.OrdinalIgnoreCase));
+                if (pkColumn is not null)
+                    yield return pkColumn;
+            }
+        }
 
         private static GeneratedFile GenerateResponseResultClass(string rootNamespace)
         {
@@ -195,6 +236,9 @@ namespace SQLAZOR.Services
             sb.AppendLine("{");
             sb.AppendLine($"    Task<ResponseResult<List<{table.ClassName}Dto>>> GetAllAsync(CancellationToken cancellationToken = default);");
             sb.AppendLine();
+            sb.AppendLine("    /// <summary>Top matches for a lookup/search box. Null or blank term returns the first page.</summary>");
+            sb.AppendLine($"    Task<ResponseResult<List<{table.ClassName}Dto>>> SearchAsync(string? term, int take = 50, CancellationToken cancellationToken = default);");
+            sb.AppendLine();
             sb.AppendLine($"    Task<ResponseResult<{table.ClassName}Dto>> GetByIdAsync({pkParams}, CancellationToken cancellationToken = default);");
             sb.AppendLine();
             sb.AppendLine($"    Task<ResponseResult<{table.ClassName}Dto>> CreateAsync({table.ClassName}CreateDto dto, CancellationToken cancellationToken = default);");
@@ -228,8 +272,17 @@ namespace SQLAZOR.Services
             var selectColumnList = Constant.BuildSelectColumnList(table);
             var outputColumnList = Constant.BuildSelectColumnList(table, "INSERTED");
 
+            var searchColumns = SearchColumns(table);
+            var searchWhere = searchColumns.Count == 0
+                ? "(@query IS NULL)"
+                : "(@query IS NULL OR " + string.Join(
+                    " OR ",
+                    searchColumns.Select(c => $"[{c.ColumnName}] LIKE @pattern ESCAPE '~'")) + ")";
+            var searchOrder = string.Join(", ", SearchOrderColumns(table, searchColumns).Select(c => $"[{c.ColumnName}]"));
+
             var sb = new StringBuilder();
             sb.Append(Constant.GeneratedHeader);
+            sb.AppendLine("using System.Collections.Concurrent;");
             sb.AppendLine("using System.Data;");
             sb.AppendLine("using System.Net;");
             sb.AppendLine("using Dapper;");
@@ -286,6 +339,67 @@ namespace SQLAZOR.Services
             sb.AppendLine("            };");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
+            sb.AppendLine();
+
+            // SearchAsync
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// Top matches for a lookup/search box. Results are cached per term for 60 seconds; rows");
+            sb.AppendLine("    /// changed elsewhere can take up to that long to appear in search.");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine($"    public async Task<ResponseResult<List<{table.ClassName}Dto>>> SearchAsync(string? term, int take = 50, CancellationToken cancellationToken = default)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        take = Math.Clamp(take, 1, 200);");
+            sb.AppendLine("        var query = string.IsNullOrWhiteSpace(term) ? null : term.Trim();");
+            sb.AppendLine("        var cacheKey = $\"{query}|{take}\";");
+            sb.AppendLine();
+            sb.AppendLine("        if (_searchCache.TryGetValue(cacheKey, out var cached) && DateTimeOffset.UtcNow - cached.CachedAt < SearchCacheTtl)");
+            sb.AppendLine("            return SearchResult(cached.Rows);");
+            sb.AppendLine();
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            const string sql = \"SELECT TOP (@take) {selectColumnList} FROM {tableRef} WHERE {searchWhere} ORDER BY {searchOrder}\";");
+            sb.AppendLine("            var pattern = query is null ? null : $\"%{EscapeLike(query)}%\";");
+            sb.AppendLine($"            var entities = (await _db.QueryAsync<{table.ClassName}>(");
+            sb.AppendLine("                new CommandDefinition(sql, new { take, query, pattern }, cancellationToken: cancellationToken))).ToList();");
+            sb.AppendLine($"            var dtos = entities.Adapt<List<{table.ClassName}Dto>>();");
+            sb.AppendLine();
+            sb.AppendLine("            if (_searchCache.Count >= SearchCacheLimit)");
+            sb.AppendLine("                _searchCache.Clear();");
+            sb.AppendLine("            _searchCache[cacheKey] = new SearchCacheEntry(DateTimeOffset.UtcNow, dtos);");
+            sb.AppendLine();
+            sb.AppendLine("            return SearchResult(dtos);");
+            sb.AppendLine("        }");
+            sb.AppendLine("        catch (Exception ex)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            return new ResponseResult<List<{table.ClassName}Dto>>");
+            sb.AppendLine("            {");
+            sb.AppendLine("                IsSuccessful = false,");
+            sb.AppendLine("                StatusCode = HttpStatusCode.InternalServerError,");
+            sb.AppendLine("                Message = ex.Message,");
+            sb.AppendLine($"                Data = new List<{table.ClassName}Dto>()");
+            sb.AppendLine("            };");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine($"    private static ResponseResult<List<{table.ClassName}Dto>> SearchResult(List<{table.ClassName}Dto> rows) => new()");
+            sb.AppendLine("    {");
+            sb.AppendLine("        IsSuccessful = true,");
+            sb.AppendLine("        StatusCode = HttpStatusCode.OK,");
+            sb.AppendLine("        Data = rows,");
+            sb.AppendLine("        TotalCount = rows.Count");
+            sb.AppendLine("    };");
+            sb.AppendLine();
+            sb.AppendLine("    private static string EscapeLike(string value) => value");
+            sb.AppendLine("        .Replace(\"~\", \"~~\")");
+            sb.AppendLine("        .Replace(\"%\", \"~%\")");
+            sb.AppendLine("        .Replace(\"_\", \"~_\")");
+            sb.AppendLine("        .Replace(\"[\", \"~[\");");
+            sb.AppendLine();
+            sb.AppendLine("    private static readonly ConcurrentDictionary<string, SearchCacheEntry> _searchCache = new();");
+            sb.AppendLine("    private static readonly TimeSpan SearchCacheTtl = TimeSpan.FromSeconds(60);");
+            sb.AppendLine("    private const int SearchCacheLimit = 128;");
+            sb.AppendLine();
+            sb.AppendLine($"    private sealed record SearchCacheEntry(DateTimeOffset CachedAt, List<{table.ClassName}Dto> Rows);");
             sb.AppendLine();
 
             // GetByIdAsync
@@ -480,6 +594,14 @@ namespace SQLAZOR.Services
             sb.AppendLine("    }");
             sb.AppendLine();
 
+            sb.AppendLine("    [HttpGet(\"search\")]");
+            sb.AppendLine("    public async Task<IActionResult> Search([FromQuery] string? term, CancellationToken cancellationToken, [FromQuery] int take = 50)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var result = await _service.SearchAsync(term, take, cancellationToken);");
+            sb.AppendLine("        return StatusCode((int)result.StatusCode, result);");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+
             sb.AppendLine($"    [HttpGet(\"{routeTemplate}\")]");
             sb.AppendLine($"    public async Task<IActionResult> GetById({pkParams}, CancellationToken cancellationToken)");
             sb.AppendLine("    {");
@@ -594,6 +716,14 @@ namespace SQLAZOR.Services
             sb.AppendLine($"    public async Task<ResponseResult<List<{table.ClassName}Dto>>> GetAllAsync(CancellationToken cancellationToken = default)");
             sb.AppendLine("    {");
             sb.AppendLine("        var response = await _http.GetAsync(BaseRoute, cancellationToken);");
+            sb.AppendLine($"        return await ReadResultAsync<List<{table.ClassName}Dto>>(response, cancellationToken);");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+
+            sb.AppendLine($"    public async Task<ResponseResult<List<{table.ClassName}Dto>>> SearchAsync(string? term, int take = 50, CancellationToken cancellationToken = default)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var url = $\"{{BaseRoute}}/search?term={Uri.EscapeDataString(term ?? string.Empty)}&take={take}\";");
+            sb.AppendLine("        var response = await _http.GetAsync(url, cancellationToken);");
             sb.AppendLine($"        return await ReadResultAsync<List<{table.ClassName}Dto>>(response, cancellationToken);");
             sb.AppendLine("    }");
             sb.AppendLine();
@@ -924,16 +1054,18 @@ namespace SQLAZOR.Services
         // Create page
         // ----------------------------------------------------------------------
 
-        private static GeneratedFile GenerateCreatePage(TableInfo table, string rootNamespace, PageStyle pageStyle)
+        private static GeneratedFile GenerateCreatePage(TableInfo table, string rootNamespace, PageStyle pageStyle, TableLookupPlan? lookupPlan = null)
         {
             var pluralRoute = NamingHelper.Pluralize(table.ClassName).ToLowerInvariant();
             var creatableCols = GetCreatableColumns(table);
+            var lookups = SelectLookups(lookupPlan, creatableCols);
 
             var sb = new StringBuilder();
             sb.AppendLine("@* auto-generated by SQLAZOR - hand-edit freely, this file is not regenerated automatically *@");
             sb.AppendLine($"@page \"/{pluralRoute}/create\"");
             if (pageStyle == PageStyle.MudBlazor) sb.AppendLine("@using MudBlazor");
             sb.AppendLine($"@inject I{table.ClassName}Service Service");
+            AppendLookupInjections(sb, table, lookups);
             sb.AppendLine("@inject NavigationManager Nav");
             sb.AppendLine();
 
@@ -950,7 +1082,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("}");
                     sb.AppendLine();
                     sb.AppendLine("<MudForm Model=\"_model\">");
-                    AppendMudFields(sb, creatableCols, "_model");
+                    AppendMudFields(sb, creatableCols, "_model", lookups);
                     sb.AppendLine("    <MudButton Variant=\"Variant.Filled\" Color=\"Color.Primary\" OnClick=\"SubmitAsync\" Disabled=\"@_saving\">Create</MudButton>");
                     sb.AppendLine($"    <MudButton Variant=\"Variant.Text\" Href=\"/{pluralRoute}\">Cancel</MudButton>");
                     sb.AppendLine("</MudForm>");
@@ -975,7 +1107,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("<div class=\"card\">");
                     sb.AppendLine("    <div class=\"card-body\">");
                     sb.AppendLine("        <EditForm Model=\"_model\" OnValidSubmit=\"SubmitAsync\">");
-                    AppendPlainFields(sb, creatableCols, "_model", indent: "            ");
+                    AppendPlainFields(sb, creatableCols, "_model", lookups, indent: "            ");
                     sb.AppendLine("            <div class=\"form-footer\">");
                     sb.AppendLine("                <button type=\"submit\" class=\"btn btn-primary\" disabled=\"@_saving\">Create</button>");
                     sb.AppendLine($"                <a href=\"/{pluralRoute}\" class=\"btn btn-link\">Cancel</a>");
@@ -996,7 +1128,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("}");
                     sb.AppendLine();
                     sb.AppendLine("<EditForm Model=\"_model\" OnValidSubmit=\"SubmitAsync\">");
-                    AppendPlainFields(sb, creatableCols, "_model");
+                    AppendPlainFields(sb, creatableCols, "_model", lookups);
                     sb.AppendLine("    <button type=\"submit\" class=\"btn btn-primary\" disabled=\"@_saving\">Create</button>");
                     sb.AppendLine($"    <a href=\"/{pluralRoute}\" class=\"btn btn-secondary\">Cancel</a>");
                     sb.AppendLine("</EditForm>");
@@ -1009,7 +1141,16 @@ namespace SQLAZOR.Services
             sb.AppendLine("    private bool _saving;");
             sb.AppendLine("    private string? _error;");
             sb.AppendLine($"    private {table.ClassName}CreateDto _model = new();");
-            sb.AppendLine();
+            if (pageStyle == PageStyle.MudBlazor)
+            {
+                AppendMudLookupMembers(sb, table, lookups);
+            }
+            else
+            {
+                AppendPlainLookupStateFields(sb, lookups);
+                sb.AppendLine();
+                AppendLookupOnInitialized(sb, table, lookups);
+            }
             sb.AppendLine("    private async Task SubmitAsync()");
             sb.AppendLine("    {");
             sb.AppendLine("        _saving = true;");
@@ -1035,19 +1176,21 @@ namespace SQLAZOR.Services
         // Edit page
         // ----------------------------------------------------------------------
 
-        private static GeneratedFile GenerateEditPage(TableInfo table, string rootNamespace, PageStyle pageStyle)
+        private static GeneratedFile GenerateEditPage(TableInfo table, string rootNamespace, PageStyle pageStyle, TableLookupPlan? lookupPlan = null)
         {
             var pluralRoute = NamingHelper.Pluralize(table.ClassName).ToLowerInvariant();
             var routeParams = GetPkRouteParams(table);
             var routeTemplate = string.Join("/", routeParams.Select(p => "{" + p.RouteParamName + RouteConstraintFor(p.Column.ClrType) + "}"));
             var routeParamArgs = string.Join(", ", routeParams.Select(p => p.RouteParamName));
             var updatableCols = GetUpdatableColumns(table);
+            var lookups = SelectLookups(lookupPlan, updatableCols);
 
             var sb = new StringBuilder();
             sb.AppendLine("@* auto-generated by SQLAZOR - hand-edit freely, this file is not regenerated automatically *@");
             sb.AppendLine($"@page \"/{pluralRoute}/edit/{routeTemplate}\"");
             if (pageStyle == PageStyle.MudBlazor) sb.AppendLine("@using MudBlazor");
             sb.AppendLine($"@inject I{table.ClassName}Service Service");
+            AppendLookupInjections(sb, table, lookups);
             sb.AppendLine("@inject NavigationManager Nav");
             sb.AppendLine();
 
@@ -1070,7 +1213,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("    }");
                     sb.AppendLine();
                     sb.AppendLine("    <MudForm Model=\"_model\">");
-                    AppendMudFields(sb, updatableCols, "_model", indent: "        ");
+                    AppendMudFields(sb, updatableCols, "_model", lookups, indent: "        ");
                     sb.AppendLine("        <MudButton Variant=\"Variant.Filled\" Color=\"Color.Primary\" OnClick=\"SubmitAsync\" Disabled=\"@_saving\">Save</MudButton>");
                     sb.AppendLine($"        <MudButton Variant=\"Variant.Text\" Href=\"/{pluralRoute}\">Cancel</MudButton>");
                     sb.AppendLine("    </MudForm>");
@@ -1102,7 +1245,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("    <div class=\"card\">");
                     sb.AppendLine("        <div class=\"card-body\">");
                     sb.AppendLine("            <EditForm Model=\"_model\" OnValidSubmit=\"SubmitAsync\">");
-                    AppendPlainFields(sb, updatableCols, "_model", indent: "                ");
+                    AppendPlainFields(sb, updatableCols, "_model", lookups, indent: "                ");
                     sb.AppendLine("                <div class=\"form-footer\">");
                     sb.AppendLine("                    <button type=\"submit\" class=\"btn btn-primary\" disabled=\"@_saving\">Save</button>");
                     sb.AppendLine($"                    <a href=\"/{pluralRoute}\" class=\"btn btn-link\">Cancel</a>");
@@ -1130,7 +1273,7 @@ namespace SQLAZOR.Services
                     sb.AppendLine("    }");
                     sb.AppendLine();
                     sb.AppendLine("    <EditForm Model=\"_model\" OnValidSubmit=\"SubmitAsync\">");
-                    AppendPlainFields(sb, updatableCols, "_model", indent: "        ");
+                    AppendPlainFields(sb, updatableCols, "_model", lookups, indent: "        ");
                     sb.AppendLine("        <button type=\"submit\" class=\"btn btn-primary\" disabled=\"@_saving\">Save</button>");
                     sb.AppendLine($"        <a href=\"/{pluralRoute}\" class=\"btn btn-secondary\">Cancel</a>");
                     sb.AppendLine("    </EditForm>");
@@ -1150,7 +1293,15 @@ namespace SQLAZOR.Services
             sb.AppendLine("    private bool _saving;");
             sb.AppendLine("    private string? _error;");
             sb.AppendLine($"    private {table.ClassName}UpdateDto _model = new();");
-            sb.AppendLine();
+            if (pageStyle == PageStyle.MudBlazor)
+            {
+                AppendMudLookupMembers(sb, table, lookups);
+            }
+            else
+            {
+                AppendPlainLookupStateFields(sb, lookups);
+                sb.AppendLine();
+            }
             sb.AppendLine("    protected override async Task OnInitializedAsync()");
             sb.AppendLine("    {");
             sb.AppendLine($"        var result = await Service.GetByIdAsync({routeParamArgs});");
@@ -1166,6 +1317,10 @@ namespace SQLAZOR.Services
             sb.AppendLine($"            _error = result.Message ?? \"{table.ClassName} not found.\";");
             sb.AppendLine("        }");
             sb.AppendLine();
+            if (pageStyle == PageStyle.MudBlazor)
+                AppendMudLookupSeedStatements(sb, table, lookups);
+            else
+                AppendLookupLoadStatements(sb, table, lookups);
             sb.AppendLine("        _loading = false;");
             sb.AppendLine("    }");
             sb.AppendLine();
@@ -1196,10 +1351,17 @@ namespace SQLAZOR.Services
         /// T is set to the column's exact declared CLR type (nullable marker included) since
         /// @bind-Value requires an exact match with the bound property's type.
         /// </summary>
-        private static void AppendMudFields(StringBuilder sb, List<ColumnInfo> columns, string modelVar, string indent = "    ")
+        private static void AppendMudFields(StringBuilder sb, List<ColumnInfo> columns, string modelVar, List<ColumnLookup>? lookups = null, string indent = "    ")
         {
             foreach (var col in columns)
             {
+                var lookup = FindLookup(lookups, col);
+                if (lookup is not null)
+                {
+                    AppendMudLookupField(sb, col, lookup, modelVar, indent);
+                    continue;
+                }
+
                 if (!IsMudRenderable(col.ClrType))
                 {
                     sb.AppendLine($"{indent}@* {col.PropertyName} ({col.SqlDataType}) isn't auto-renderable - add a field for it by hand if needed *@");
@@ -1242,10 +1404,17 @@ namespace SQLAZOR.Services
         };
 
 
-        private static void AppendPlainFields(StringBuilder sb, List<ColumnInfo> columns, string modelVar, string indent = "    ")
+        private static void AppendPlainFields(StringBuilder sb, List<ColumnInfo> columns, string modelVar, List<ColumnLookup>? lookups = null, string indent = "    ")
         {
             foreach (var col in columns)
             {
+                var lookup = FindLookup(lookups, col);
+                if (lookup is not null)
+                {
+                    AppendPlainLookupField(sb, col, lookup, modelVar, indent);
+                    continue;
+                }
+
                 var (renderable, inputType) = GetHtmlInputInfo(col.ClrType);
                 if (!renderable)
                 {
@@ -1270,6 +1439,295 @@ namespace SQLAZOR.Services
             }
         }
 
+
+        private static void AppendMudLookupField(StringBuilder sb, ColumnInfo column, ColumnLookup lookup, string modelVar, string indent)
+        {
+            var label = Constant.HtmlEncode(LookupLabel(lookup));
+            var prop = column.PropertyName;
+
+            if (lookup.ValueSource == LookupValueSource.StaticList)
+            {
+                sb.AppendLine($"{indent}<MudSelect T=\"{column.ClrType}\" @bind-Value=\"{modelVar}.{prop}\" Label=\"{label}\" Variant=\"Variant.Outlined\" Class=\"mb-3\">");
+                foreach (var option in lookup.StaticOptions)
+                {
+                    sb.AppendLine($"{indent}    <MudSelectItem T=\"{column.ClrType}\" Value=\"@(\"{EscapeCSharpString(option)}\")\">{Constant.HtmlEncode(option)}</MudSelectItem>");
+                }
+                sb.AppendLine($"{indent}</MudSelect>");
+                return;
+            }
+
+            // Reference lookups use a server-backed search box so large tables never load in full.
+            // Text lookups (the stored value is the label) need no label resolver.
+            var toString = lookup.ValueSource == LookupValueSource.ReferencedColumn
+                ? $" ToStringFunc=\"{prop}Label\""
+                : string.Empty;
+            sb.AppendLine($"{indent}<MudAutocomplete T=\"{column.ClrType}\" @bind-Value=\"{modelVar}.{prop}\" SearchFunc=\"Search{prop}Async\"{toString} Label=\"{label}\" Variant=\"Variant.Outlined\" Class=\"mb-3\" MaxItems=\"50\" />");
+        }
+
+        private static void AppendPlainLookupField(StringBuilder sb, ColumnInfo column, ColumnLookup lookup, string modelVar, string indent)
+        {
+            var label = Constant.HtmlEncode(LookupLabel(lookup));
+            var prop = column.PropertyName;
+            sb.AppendLine($"{indent}<div class=\"mb-3\">");
+            sb.AppendLine($"{indent}    <label class=\"form-label\" for=\"{modelVar}_{prop}\">{label}</label>");
+
+            if (lookup.ValueSource != LookupValueSource.StaticList)
+            {
+                // Options are capped by the initial load; this filters what was already fetched.
+                sb.AppendLine($"{indent}    <input type=\"search\" class=\"form-control form-control-sm mb-1\" placeholder=\"Search…\" @bind=\"_lookup{prop}Search\" @bind:event=\"oninput\" />");
+            }
+
+            sb.AppendLine($"{indent}    <select class=\"form-select\" id=\"{modelVar}_{prop}\" @bind=\"{modelVar}.{prop}\">");
+
+            var acceptsEmpty = column.IsNullable || LookupPlanner.BaseClrType(column.ClrType) == "string";
+            if (acceptsEmpty)
+                sb.AppendLine($"{indent}        <option value=\"\">—</option>");
+
+            if (lookup.ValueSource == LookupValueSource.StaticList)
+            {
+                foreach (var option in lookup.StaticOptions)
+                {
+                    sb.AppendLine($"{indent}        <option value=\"{Constant.HtmlEncode(option)}\">{Constant.HtmlEncode(option)}</option>");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"{indent}        @foreach (var option in {LookupListName(lookup.ReferencedTable!)}.Where(o => Matches{prop}(o, _lookup{prop}Search)))");
+                sb.AppendLine($"{indent}        {{");
+                var value = lookup.ValueSource == LookupValueSource.ReferencedColumn
+                    ? $"@option.{lookup.ValueColumn!.PropertyName}"
+                    : $"@(({LookupDisplayExpression(lookup)}))";
+                sb.AppendLine($"{indent}            <option value=\"{value}\">{LookupDisplayMarkup(lookup)}</option>");
+                sb.AppendLine($"{indent}        }}");
+            }
+
+            sb.AppendLine($"{indent}    </select>");
+            sb.AppendLine($"{indent}</div>");
+        }
+
+        private static List<ColumnLookup> SelectLookups(TableLookupPlan? plan, IEnumerable<ColumnInfo> columns)
+        {
+            if (plan is null)
+                return [];
+
+            var names = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return plan.Columns.Where(l => names.Contains(l.Column.ColumnName)).ToList();
+        }
+
+        private static ColumnLookup? FindLookup(List<ColumnLookup>? lookups, ColumnInfo column) =>
+            lookups?.FirstOrDefault(l => l.Column.ColumnName.Equals(column.ColumnName, StringComparison.OrdinalIgnoreCase));
+
+        private static List<TableInfo> LookupReferenceTables(List<ColumnLookup> lookups) =>
+            lookups
+                .Where(l => l.ValueSource != LookupValueSource.StaticList && l.ReferencedTable is not null)
+                .Select(l => l.ReferencedTable!)
+                .DistinctBy(t => t.FullyQualifiedName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        private static void AppendLookupInjections(StringBuilder sb, TableInfo table, List<ColumnLookup> lookups)
+        {
+            foreach (var referenced in LookupReferenceTables(lookups)
+                .Where(r => !r.FullyQualifiedName.Equals(table.FullyQualifiedName, StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine($"@inject I{referenced.ClassName}Service {LookupServiceName(referenced)}");
+            }
+        }
+
+        private static void AppendPlainLookupStateFields(StringBuilder sb, List<ColumnLookup> lookups)
+        {
+            foreach (var referenced in LookupReferenceTables(lookups))
+            {
+                sb.AppendLine($"    private List<{referenced.ClassName}Dto> {LookupListName(referenced)} = [];");
+            }
+
+            foreach (var lookup in lookups.Where(l => l.ValueSource != LookupValueSource.StaticList))
+            {
+                var prop = lookup.Column.PropertyName;
+                var referenced = lookup.ReferencedTable!;
+                sb.AppendLine($"    private string? _lookup{prop}Search;");
+                sb.AppendLine($"    private static bool Matches{prop}({referenced.ClassName}Dto option, string? term) =>");
+                sb.AppendLine($"        string.IsNullOrWhiteSpace(term) || ({LookupDisplayExpression(lookup)} ?? string.Empty).Contains(term.Trim(), StringComparison.OrdinalIgnoreCase);");
+            }
+        }
+
+        /// <summary>
+        /// Search/label members for MudAutocomplete lookups. Searches run server-side through the
+        /// generated SearchAsync, capped at 50 rows; selected keys resolve their label through the cache.
+        /// </summary>
+        private static void AppendMudLookupMembers(StringBuilder sb, TableInfo table, List<ColumnLookup> lookups)
+        {
+            foreach (var lookup in lookups.Where(l => l.ValueSource != LookupValueSource.StaticList))
+            {
+                var prop = lookup.Column.PropertyName;
+                var member = LookupMemberName(prop);
+                var type = lookup.Column.ClrType;
+                var referenced = lookup.ReferencedTable!;
+                var service = referenced.FullyQualifiedName.Equals(table.FullyQualifiedName, StringComparison.OrdinalIgnoreCase)
+                    ? "Service"
+                    : LookupServiceName(referenced);
+                var display = LookupValueExpression(lookup, "row");
+
+                if (lookup.ValueSource == LookupValueSource.ReferencedColumn)
+                {
+                    var valueColumn = lookup.ValueColumn!;
+                    var keyType = type.TrimEnd('?');
+                    sb.AppendLine($"    private readonly Dictionary<{keyType}, string> _{member}Labels = new();");
+                    sb.AppendLine();
+                    sb.AppendLine($"    private async Task<IEnumerable<{type}>> Search{prop}Async(string? value, CancellationToken token)");
+                    sb.AppendLine("    {");
+                    sb.AppendLine($"        var result = await {service}.SearchAsync(value, 50, token);");
+                    sb.AppendLine("        if (!result.IsSuccessful || result.Data is null)");
+                    sb.AppendLine("            return [];");
+                    sb.AppendLine();
+                    sb.AppendLine("        foreach (var row in result.Data)");
+                    sb.AppendLine($"            _{member}Labels[row.{valueColumn.PropertyName}] = {display};");
+                    sb.AppendLine();
+                    sb.AppendLine($"        return result.Data.Select(row => ({type})row.{valueColumn.PropertyName}).Distinct().ToList();");
+                    sb.AppendLine("    }");
+                    sb.AppendLine();
+                    sb.AppendLine($"    private string? {prop}Label({type} id) =>");
+                    sb.AppendLine(type.EndsWith('?')
+                        ? $"        id is {{ }} key && _{member}Labels.TryGetValue(key, out var label) ? label : id?.ToString();"
+                        : $"        _{member}Labels.TryGetValue(id, out var label) ? label : id.ToString();");
+                }
+                else
+                {
+                    sb.AppendLine($"    private async Task<IEnumerable<{type}>> Search{prop}Async(string? value, CancellationToken token)");
+                    sb.AppendLine("    {");
+                    sb.AppendLine($"        var result = await {service}.SearchAsync(value, 50, token);");
+                    sb.AppendLine("        if (!result.IsSuccessful || result.Data is null)");
+                    sb.AppendLine("            return [];");
+                    sb.AppendLine();
+                    sb.AppendLine($"        return result.Data.Select(row => ({type})({display})).Distinct().ToList();");
+                    sb.AppendLine("    }");
+                }
+
+                sb.AppendLine();
+            }
+        }
+
+        /// <summary>
+        /// Edit pages start with the foreign key already set but no search has run, so seed the label
+        /// cache from GetByIdAsync. Only possible when the stored column is the referenced table's
+        /// single-column primary key - other lookups fall back to showing the raw value.
+        /// </summary>
+        private static void AppendMudLookupSeedStatements(StringBuilder sb, TableInfo table, List<ColumnLookup> lookups)
+        {
+            foreach (var lookup in lookups)
+            {
+                var referenced = lookup.ReferencedTable;
+                var valueColumn = lookup.ValueColumn;
+                if (lookup.ValueSource != LookupValueSource.ReferencedColumn || referenced is null || valueColumn is null)
+                    continue;
+
+                var pkColumns = referenced.PrimaryKeyColumns;
+                if (pkColumns.Count != 1 ||
+                    !pkColumns[0].Equals(valueColumn.ColumnName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var prop = lookup.Column.PropertyName;
+                var member = LookupMemberName(prop);
+                var local = $"current{prop}";
+                var service = referenced.FullyQualifiedName.Equals(table.FullyQualifiedName, StringComparison.OrdinalIgnoreCase)
+                    ? "Service"
+                    : LookupServiceName(referenced);
+
+                sb.AppendLine($"        if (_model.{prop} is {{ }} {local})");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            var seed{prop} = await {service}.GetByIdAsync({local});");
+                sb.AppendLine($"            if (seed{prop}.IsSuccessful && seed{prop}.Data is not null)");
+                sb.AppendLine($"                _{member}Labels[{local}] = {LookupValueExpression(lookup, $"seed{prop}.Data")};");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+            }
+        }
+
+        private static void AppendLookupOnInitialized(StringBuilder sb, TableInfo table, List<ColumnLookup> lookups)
+        {
+            if (LookupReferenceTables(lookups).Count == 0)
+                return;
+
+            sb.AppendLine("    protected override async Task OnInitializedAsync()");
+            sb.AppendLine("    {");
+            AppendLookupLoadStatements(sb, table, lookups);
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
+        private static void AppendLookupLoadStatements(StringBuilder sb, TableInfo table, List<ColumnLookup> lookups)
+        {
+            foreach (var referenced in LookupReferenceTables(lookups))
+            {
+                var service = referenced.FullyQualifiedName.Equals(table.FullyQualifiedName, StringComparison.OrdinalIgnoreCase)
+                    ? "Service"
+                    : LookupServiceName(referenced);
+                var resultVar = LookupResultVariable(referenced);
+
+                sb.AppendLine($"        var {resultVar} = await {service}.GetAllAsync();");
+                sb.AppendLine($"        if ({resultVar}.IsSuccessful) {LookupListName(referenced)} = {resultVar}.Data ?? [];");
+            }
+        }
+
+        private static string LookupServiceName(TableInfo referenced) => $"{referenced.ClassName}LookupService";
+
+        private static string LookupMemberName(string propertyName) =>
+            char.ToLowerInvariant(propertyName[0]) + propertyName[1..];
+
+        private static string LookupListName(TableInfo referenced) => $"_lookup{referenced.ClassName}";
+
+        private static string LookupResultVariable(TableInfo referenced) => $"lookup{referenced.ClassName}";
+
+        private static string LookupLabel(ColumnLookup lookup)
+        {
+            var name = lookup.Column.ColumnName;
+
+            if (lookup.ValueSource == LookupValueSource.ReferencedColumn)
+            {
+                foreach (var suffix in new[] { "_Id", "_ID", "_id", "Id", "ID" })
+                {
+                    if (name.EndsWith(suffix, StringComparison.Ordinal) && name.Length > suffix.Length)
+                    {
+                        name = name[..^suffix.Length];
+                        break;
+                    }
+                }
+            }
+
+            return NamingHelper.Humanize(name);
+        }
+
+        /// <summary>Bare C# expression for the option text (no leading @), e.g. option.Name.</summary>
+        private static string LookupDisplayExpression(ColumnLookup lookup) => LookupValueExpression(lookup, "option");
+
+        /// <summary>Same as <see cref="LookupDisplayExpression"/> but against an arbitrary row variable.</summary>
+        private static string LookupValueExpression(ColumnLookup lookup, string variable)
+        {
+            var columns = lookup.LabelColumns;
+            if (columns.Count == 1)
+            {
+                var column = columns[0];
+                // A bare key (the planner's last resort) reads badly in a dropdown - say what it is.
+                return column.IsPrimaryKey
+                    ? $"$\"{lookup.ReferencedTable!.ClassName} #{{{variable}.{column.PropertyName}}}\""
+                    : $"{variable}.{column.PropertyName}";
+            }
+
+            var parts = string.Join(" ", columns.Select(c => $"{{{variable}.{c.PropertyName}}}"));
+            return $"$\"{parts}\"";
+        }
+
+        /// <summary>Razor markup for the option text, e.g. @option.Name or @($"{option.FirstName} {option.LastName}").</summary>
+        private static string LookupDisplayMarkup(ColumnLookup lookup)
+        {
+            var columns = lookup.LabelColumns;
+            if (columns.Count == 1 && !columns[0].IsPrimaryKey)
+                return $"@option.{columns[0].PropertyName}";
+
+            return $"@({LookupDisplayExpression(lookup)})";
+        }
+
+        private static string EscapeCSharpString(string value) =>
+            value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
         private static (bool Renderable, string InputType) GetHtmlInputInfo(string clrType) => clrType.TrimEnd('?') switch
         {
